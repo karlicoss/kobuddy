@@ -1,5 +1,7 @@
+from datetime import datetime
 import logging
 import os
+from typing import List, NamedTuple
 
 import export_kobo # type: ignore
 
@@ -14,8 +16,47 @@ def _get_last_backup() -> str:
     last = max([f for f in os.listdir(_PATH) if RE.search(f)])
     return os.path.join(_PATH, last)
 
+def _parse_date(dts: str) -> datetime:
+    for f in (
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%SZ",
+    ):
+        try:
+            return datetime.strptime(dts, f)
+        except ValueError:
+            pass
+    else:
+        raise RuntimeError(f"Could not parse {dts}")
 
-def get_kobo_data():
+
+class Item(NamedTuple):
+    w: export_kobo.Item
+
+    @property
+    def dt_created(self) -> datetime:
+        return _parse_date(self.w.datecreated)
+
+    @property
+    def dt_modified(self) -> datetime:
+        return _parse_date(self.w.datemodified)
+
+    @property
+    def dt(self) -> datetime:
+        return max(self.dt_created, self.dt_modified)
+
+    @property
+    def summary(self) -> str:
+        return f"{self.w.kind} in {self.w.title}"
+
+    @property
+    def annotation(self):
+        return self.w.annotation
+
+    @property
+    def text(self):
+        return self.w.text
+
+def get_datas():
     logger = get_logger()
     bfile = _get_last_backup()
 
@@ -29,7 +70,7 @@ def get_kobo_data():
         'highlights_only': False,
         'annotations_only': False,
     }
-    return ex.read_items()
+    return [Item(i) for i in ex.read_items()]
 # nn.extraannotationdata
 # nn.kind
 # nn.kindle_my_clippings
