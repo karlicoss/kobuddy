@@ -3,7 +3,9 @@ import logging
 import os
 from typing import List, NamedTuple
 
-import export_kobo # type: ignore
+
+import imp
+export_kobo = imp.load_source('ekobo', '/L/Dropbox/repos/export-kobo/export-kobo.py') # type: ignore
 
 _PATH = "/L/backups/kobo/"
 
@@ -55,6 +57,10 @@ class Item(NamedTuple):
     @property
     def text(self):
         return self.w.text
+
+    @property
+    def iid(self):
+        return self.w.datecreated
 
 def get_datas():
     logger = get_logger()
