@@ -1,6 +1,6 @@
 import logging
 
-from kobo import get_datas, get_logger
+from kobo import get_datas, get_logger, Item
 
 from kython.logging import setup_logzero
 

@@ -48,7 +48,15 @@ class Item(NamedTuple):
 
     @property
     def summary(self) -> str:
-        return f"{self.w.kind} in {self.w.title}"
+        return f"{self.kind} in {self.title}"
+
+    @property
+    def title(self) -> str:
+        return self.w.title
+
+    @property
+    def kind(self) -> str:
+        return self.w.kind
 
     @property
     def annotation(self):
@@ -60,7 +68,16 @@ class Item(NamedTuple):
 
     @property
     def iid(self):
+        return self.datecreated
+
+    @property
+    def bid(self) -> str:
+        return self.w.bookmark_id # TODO use instead of iid?? make sure krill can handle it
+
+    @property
+    def datecreated(self):
         return self.w.datecreated
+
 
 def get_datas():
     logger = get_logger()
@@ -77,9 +94,28 @@ def get_datas():
         'annotations_only': False,
     }
     return [Item(i) for i in ex.read_items()]
+    # TODO eh. item is barely useful, it's just putting sqlite row into an object. just use raw query?
 # nn.extraannotationdata
 # nn.kind
 # nn.kindle_my_clippings
 # nn.title
 # nn.text
 # nn.annotation
+
+# TODO ugh. better name?
+
+# TODO maybe, just query from all annotations?
+# basically, I want
+# query stuff with certain annotations ('krill')
+# query stuff with certain text properties? (one line only)
+# comparator to merge them (iid is fine??)
+def by_annotation(ann: str):
+    datas = get_datas()
+    res = []
+    for d in datas:
+        a = d.annotation
+        if a is None:
+            continue
+        if ann.lower() == a.lower().strip():
+            res.append(d)
+    return res
