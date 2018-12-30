@@ -81,19 +81,9 @@ class Highlight(Event):
     def annotation(self):
         return self.w.annotation
 
-    # TODO remove?
-    @property
-    def iid(self):
-        # TODO shit. this is used in kobo provider.. just use eid instead..
-        return self.datecreated
-
     @property
     def eid(self) -> str:
         return self.w.bookmark_id # TODO use instead of iid?? make sure krill can handle it
-
-    @property
-    def datecreated(self):
-        return self.w.datecreated
 
     @property
     def kind(self) -> str:
