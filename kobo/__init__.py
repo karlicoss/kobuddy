@@ -1,13 +1,18 @@
+# pip3 install dataset
 from datetime import datetime
 import logging
 import os
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Iterator
+from typing_extensions import Protocol
 import json
 from os.path import basename
 
+from kython.pdatetime import parse_mdatetime
 
 import imp
 export_kobo = imp.load_source('ekobo', '/L/Dropbox/repos/export-kobo/export-kobo.py') # type: ignore
+
+import dataset # type: ignore
 
 _PATH = "/L/backups/kobo/"
 
@@ -34,6 +39,32 @@ def _parse_date(dts: str) -> datetime:
             pass
     else:
         raise RuntimeError(f"Could not parse {dts}")
+    # TODO move to kython
+
+
+# TODO not sure, is protocol really necessary here?
+# TODO maybe what we really want is parsing batch of dates? Then it's easier to guess the format.
+class Event(Protocol):
+    @property
+    def dt(self) -> datetime: # TODO not sure.. optional?
+        return self._dt
+
+    # books don't necessarily have title/author, so this is more generic..
+    @property
+    def book(self) -> str:
+        return self._book
+
+    @property
+    def eid(self) -> str:
+        return self._eid # TODO ugh. properties with fallback??
+    # TODO try ellipsis??
+
+    @property
+    def summary(self) -> str:
+        return f'event in {self.book}'
+
+    def __repr__(self) -> str:
+        return f'{self.dt}: {self.summary}'
 
 
 class Item(NamedTuple):
@@ -43,13 +74,10 @@ class Item(NamedTuple):
     def dt_created(self) -> datetime:
         return _parse_date(self.w.datecreated)
 
-    @property
-    def dt_modified(self) -> datetime:
-        return _parse_date(self.w.datemodified)
-
+    # modified is either same as created or 0 timestamp. anyway, not very interesting
     @property
     def dt(self) -> datetime:
-        return max(self.dt_created, self.dt_modified)
+        return self.dt_created
 
     @property
     def summary(self) -> str:
@@ -125,6 +153,21 @@ def by_annotation(ann: str):
             res.append(d)
     return res
 
+class GenericEvent(Event):
+    def __init__(self, dt: datetime, book: str, eid: str):
+        self._dt = dt
+        self._book = book
+        self._eid = eid
+
+class ProgressEvent(GenericEvent):
+    def __init__(self, *args, prog: str, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.prog = prog
+
+    @property
+    def summary(self) -> str:
+        return f'progress on {self.book}: {self.prog}'
+
 class EventTypes:
     START = 'StartReadingBook'
     OPEN = 'OpenContent'
@@ -132,47 +175,50 @@ class EventTypes:
 
 
 class AnalyticsEvents:
+    Id = 'Id'
     Attributes = 'Attributes'
     Timestamp = 'Timestamp'
     Type = 'Type'
 
+class StartEvent(GenericEvent):
+    @property
+    def summary(self) -> str:
+        return f'started reading {self.book}'
 
-def iter_start_reading():
-    import sqlite3
-
-    # TODO wtf?? why didn't dataset work??
-    # import dataset # type: ignore
-    # TODO dataset??
-    # for fname in _get_all_dbs():
-        # db = dataset.connect(f'sqlite://{fname}')
-        # table = db.load_table('AnalyticsEvents')
-        # for x in table.all():
-        #     yield x
+def _iter_events_aux() -> Iterator[Event]:
     for fname in _get_all_dbs():
-        query = f'select {AnalyticsEvents.Timestamp},{AnalyticsEvents.Type},{AnalyticsEvents.Attributes} from AnalyticsEvents'
-        # TODO with?
-        with sqlite3.connect(fname) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            datas = cursor.fetchall()
-            for ts, tp, att in datas:
-                att = json.loads(att)
-                if tp == EventTypes.START:
-                    descr = f"{att.get('title', '')} by {att.get('author', '')}"
-                    yield f'{ts}: started reading {descr}'
-                elif tp == EventTypes.PROGRESS:
-                    prog = att.get('progress', '')
-                    vol = att.get('volumeid', '')
-                    descr = basename(vol) # TODO retrieve it somehow?..
-                    yield f'{ts}: progress on {descr}: {prog}'
-            cursor.close()
+        db = dataset.connect(f'sqlite:///{fname}')
+        table = db.load_table('AnalyticsEvents')
+        for row in table.all():
+            AE = AnalyticsEvents
+            eid, ts, tp, att = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes]
+            ts = parse_mdatetime(ts) # TODO make dynamic?
+            att = json.loads(att)
+            if tp == EventTypes.START:
+                descr = f"{att.get('title', '')} by {att.get('author', '')}"
+                yield StartEvent(
+                    dt=ts,
+                    book=descr,
+                    eid=eid,
+                )
+            elif tp == EventTypes.PROGRESS:
+                prog = att.get('progress', '')
+                vol = att.get('volumeid', '')
+                descr = basename(vol) # TODO retrieve it somehow?..
+                yield ProgressEvent(
+                    dt=ts,
+                    book=descr,
+                    eid=eid,
+                    prog=prog,
+                )
 
 # TODO mm, could also integrate it with goodreads api?...
-def start_reading():
+def iter_events():
     seen = set()
-    res = []
-    for x in iter_start_reading():
+    for x in _iter_events_aux():
         if x not in seen:
             seen.add(x)
-            res.append(x)
-    return res
+            yield x
+
+def get_events():
+    return list(iter_events())
