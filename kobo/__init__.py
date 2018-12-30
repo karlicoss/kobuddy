@@ -2,7 +2,7 @@
 from datetime import datetime
 import logging
 import os
-from typing import List, NamedTuple, Iterator, Optional, Set, Tuple
+from typing import List, NamedTuple, Iterator, Optional, Set, Tuple, Dict
 from typing_extensions import Protocol
 import json
 from os.path import basename
@@ -124,9 +124,14 @@ class StartEvent(OtherEvent):
         return f'started reading {self.book}'
 
 class FinishedEvent(OtherEvent):
+    def __init__(self, *args, time_spent_s: int, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.time_spent_s = time_spent_s
+
     @property
     def summary(self) -> str:
-        return f'finished reading {self.book}'
+        tss = "undefined" if self.time_spent_s == -1 else self.time_spent_s // 60
+        return f'finished reading {self.book}. total time spent {tss} minutes'
 
 class LeaveEvent(OtherEvent):
     def __init__(self, *args, prog: str, seconds: int, **kwargs) -> None:
@@ -156,9 +161,25 @@ class AnalyticsEvents:
 def _iter_events_aux() -> Iterator[Event]:
     logger = get_logger()
     for fname in _get_all_dbs():
-        db = dataset.connect(f'sqlite:///{fname}')
-        table = db.load_table('AnalyticsEvents')
-        for row in table.all():
+        db = dataset.connect(f'sqlite:///{fname}', reflect_views=False)
+
+        content_table = db.load_table('content')
+        # wtf... that fails with some sqlalchemy crap
+        # books = content_table.find(ContentType=6)
+        # shit, no book id weirdly...
+        books = db.query('SELECT * FROM content WHERE ContentType=6')
+        title2time: Dict[str, int] = {}
+        for b in books:
+            title = b['Title']
+            reading = b['TimeSpentReading']
+            cur = 0
+            if title in title2time:
+                logger.warning('%s: trying to handle book twice! %s', fname, title)
+                cur = title2time[title]
+            title2time[title] = max(cur, reading)
+
+        events_table = db.load_table('AnalyticsEvents')
+        for row in events_table.all():
             AE = AnalyticsEvents
             eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
             ts = parse_mdatetime(ts) # TODO make dynamic?
@@ -198,12 +219,14 @@ def _iter_events_aux() -> Iterator[Event]:
                     prog=prog,
                 )
             elif tp == EventTypes.FINISHED:
-                # TODO would be nice to include time spent reading?..
-                descr = f"{att.get('title', '')} by {att.get('author', '')}"
+                title = att.get('title', '')
+                author = att.get('author', '')
+                descr = f"{title} by {author}"
                 yield FinishedEvent(
                     dt=ts,
                     book=descr,
                     eid=eid,
+                    time_spent_s=title2time.get(title, -1),
                 )
             elif tp in (
                     'AdobeErrorEncountered',
@@ -331,6 +354,6 @@ def by_annotation(predicatish: Predicatish) -> List[Highlight]:
 
 # TODO not sure where to associate it for...
 # just extract later... if I ever want some stats
-# TODO content database -- stores TimeSpentReading, Readstatus (2, 1, 0), __PercentRead
+# TODO content database --  Readstatus (2, 1, 0), __PercentRead
 # TODO it also contains lots of extra stuff...
 
