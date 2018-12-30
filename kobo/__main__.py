@@ -9,5 +9,5 @@ setup_logzero(logger, level=logging.INFO)
 
 # import sys, ipdb, traceback; exec("def info(type, value, tb):\n    traceback.print_exception(type, value, tb)\n    ipdb.pm()"); sys.excepthook = info # type: ignore
 
-for d in iter_events():
+for d in get_events():
     print(d)

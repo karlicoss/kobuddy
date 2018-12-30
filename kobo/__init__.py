@@ -123,28 +123,64 @@ class StartEvent(OtherEvent):
     def summary(self) -> str:
         return f'started reading {self.book}'
 
+class FinishedEvent(OtherEvent):
+    @property
+    def summary(self) -> str:
+        return f'finished reading {self.book}'
+
+class LeaveEvent(OtherEvent):
+    def __init__(self, *args, prog: str, seconds: int, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.prog = prog
+        self.seconds = seconds
+
+    @property
+    def summary(self) -> str:
+        return f'left {self.book}: {self.prog}%, read for {self.seconds // 60} mins'
+
 class EventTypes:
     START = 'StartReadingBook'
     OPEN = 'OpenContent'
     PROGRESS = 'BookProgress'
+    FINISHED = 'FinishedReadingBook'
+    LEAVE_CONTENT = 'LeaveContent'
 
 
 class AnalyticsEvents:
     Id = 'Id'
     Attributes = 'Attributes'
+    Metrics = 'Metrics'
     Timestamp = 'Timestamp'
     Type = 'Type'
 
 def _iter_events_aux() -> Iterator[Event]:
+    logger = get_logger()
     for fname in _get_all_dbs():
         db = dataset.connect(f'sqlite:///{fname}')
         table = db.load_table('AnalyticsEvents')
         for row in table.all():
             AE = AnalyticsEvents
-            eid, ts, tp, att = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes]
+            eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
             ts = parse_mdatetime(ts) # TODO make dynamic?
             att = json.loads(att)
-            if tp == EventTypes.START:
+            met = json.loads(met)
+            if tp == EventTypes.LEAVE_CONTENT:
+                # TODO mm. keep only the last in group?...
+                descr = f"{att.get('title', '')} by {att.get('author', '')}"
+                prog = att.get('progress', '0')
+                secs = int(met.get('SecondsRead', 0))
+                ev = LeaveEvent(
+                    dt=ts,
+                    book=descr,
+                    eid=eid,
+                    prog=prog,
+                    seconds=secs,
+                )
+                if secs >= 60:
+                    yield ev
+                else:
+                    logger.info("skipping %s, it's too short", ev)
+            elif tp == EventTypes.START:
                 descr = f"{att.get('title', '')} by {att.get('author', '')}"
                 yield StartEvent(
                     dt=ts,
@@ -161,6 +197,49 @@ def _iter_events_aux() -> Iterator[Event]:
                     eid=eid,
                     prog=prog,
                 )
+            elif tp == EventTypes.FINISHED:
+                # TODO would be nice to include time spent reading?..
+                descr = f"{att.get('title', '')} by {att.get('author', '')}"
+                yield FinishedEvent(
+                    dt=ts,
+                    book=descr,
+                    eid=eid,
+                )
+            elif tp in (
+                    'AdobeErrorEncountered',
+                    'AppSettings',
+                    'AppStart',
+                    'BatteryLevelAtSync',
+                    'BrightnessAdjusted',
+                    '/Home',
+                    'HomeWidgetClicked',
+                    'MainNavOption',
+                    'MarkAsUnreadPrompt',
+                    'OpenReadingSettingsMenu',
+                    'PluggedIn',
+                    'ReadingSettings',
+                    'StatusBarOption',
+                    'StoreBookClicked',
+                    'StoreHome',
+                    'Books', # not even clear what's it for
+            ):
+                pass # just ignore
+            elif tp in (
+                    # This will be handled later..
+                    'CreateBookmark',
+                    'CreateHighlight',
+            ):
+                pass
+            elif tp in (
+                    # might handle later, but not now..
+                    'DictionaryLookup',
+                    'OpenContent',
+                    'RemoveContent',
+                    'Search',
+            ):
+                pass
+            else:
+                logger.warning(f'Unhandled entry of type {tp}: {row}')
 
 def _iter_highlights() -> Iterator[Event]:
     logger = get_logger()
@@ -194,6 +273,8 @@ def _iter_highlights() -> Iterator[Event]:
 # query stuff with certain text properties? (one line only)
 # comparator to merge them (iid is fine??)
 
+# TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
+
 # TODO mm, could also integrate it with goodreads api?...
 def iter_events() -> Iterator[Event]:
     yield from _iter_highlights()
@@ -206,12 +287,19 @@ def iter_events() -> Iterator[Event]:
             yield x
 
 def get_events() -> List[Event]:
-    # TODO shit, dt unaware..
     def kkey(e):
+        cls_order = 0
+        if isinstance(e, LeaveEvent):
+            cls_order = 1
+        elif isinstance(e, ProgressEvent):
+            cls_order = 2
+        elif isinstance(e, FinishedEvent):
+            cls_order = 3
+
         k = e.dt
         if k.tzinfo is None:
             k = k.replace(tzinfo=pytz.UTC)
-        return k
+        return (k, cls_order)
     return list(sorted(iter_events(), key=kkey))
 
 
@@ -239,3 +327,10 @@ def by_annotation(predicatish: Predicatish) -> List[Highlight]:
         if pred(d.annotation):
             res.append(d)
     return res
+
+
+# TODO not sure where to associate it for...
+# just extract later... if I ever want some stats
+# TODO content database -- stores TimeSpentReading, Readstatus (2, 1, 0), __PercentRead
+# TODO it also contains lots of extra stuff...
+
