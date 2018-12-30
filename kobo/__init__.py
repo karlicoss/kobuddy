@@ -2,10 +2,11 @@
 from datetime import datetime
 import logging
 import os
-from typing import List, NamedTuple, Iterator
+from typing import List, NamedTuple, Iterator, Optional, Set
 from typing_extensions import Protocol
 import json
 from os.path import basename
+import pytz
 
 from kython.pdatetime import parse_mdatetime
 
@@ -24,40 +25,25 @@ def _get_all_dbs() -> List[str]:
     RE = re.compile(r'\d{8}.*.sqlite$')
     return list(sorted([os.path.join(_PATH, f) for f in os.listdir(_PATH) if RE.search(f)]))
 
-
 def _get_last_backup() -> str:
     return max(_get_all_dbs())
-
-def _parse_date(dts: str) -> datetime:
-    for f in (
-            "%Y-%m-%dT%H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%SZ",
-    ):
-        try:
-            return datetime.strptime(dts, f)
-        except ValueError:
-            pass
-    else:
-        raise RuntimeError(f"Could not parse {dts}")
-    # TODO move to kython
-
 
 # TODO not sure, is protocol really necessary here?
 # TODO maybe what we really want is parsing batch of dates? Then it's easier to guess the format.
 class Event(Protocol):
     @property
-    def dt(self) -> datetime: # TODO not sure.. optional?
-        return self._dt
+    def dt(self) -> Optional[datetime]:
+        return self._dt # type: ignore
 
     # books don't necessarily have title/author, so this is more generic..
     @property
     def book(self) -> str:
-        return self._book
+        return self._book # type: ignore
 
     @property
     def eid(self) -> str:
-        return self._eid # TODO ugh. properties with fallback??
-    # TODO try ellipsis??
+        return self._eid # type: ignore
+        # TODO ugh. properties with fallback??
 
     @property
     def summary(self) -> str:
@@ -67,99 +53,62 @@ class Event(Protocol):
         return f'{self.dt}: {self.summary}'
 
 
-class Item(NamedTuple):
-    w: export_kobo.Item
+class Highlight(Event):
 
-    @property
-    def dt_created(self) -> datetime:
-        return _parse_date(self.w.datecreated)
+    def __init__(self, w):
+        self.w = w
 
     # modified is either same as created or 0 timestamp. anyway, not very interesting
     @property
-    def dt(self) -> datetime:
-        return self.dt_created
+    def dt(self) -> Optional[datetime]:
+        return parse_mdatetime(self.w.datecreated)
+
+    @property
+    def book(self) -> str:
+        return f'{self.title}' # TODO  by {self.author}'
 
     @property
     def summary(self) -> str:
-        return f"{self.kind} in {self.title}"
+        return f"{self.kind} in {self.book}"
 
+    # this is what's actually hightlighted
     @property
-    def title(self) -> str:
-        return self.w.title
+    def text(self) -> str:
+        return self.w.text
 
-    @property
-    def kind(self) -> str:
-        return self.w.kind
-
+    # TODO optional??
     @property
     def annotation(self):
         return self.w.annotation
 
     @property
-    def text(self):
-        return self.w.text
-
-    @property
     def iid(self):
+        # TODO shit. this is used in kobo provider.. just use eid instead..
         return self.datecreated
 
     @property
-    def bid(self) -> str:
+    def eid(self) -> str:
         return self.w.bookmark_id # TODO use instead of iid?? make sure krill can handle it
 
     @property
     def datecreated(self):
         return self.w.datecreated
 
+    @property
+    def kind(self) -> str:
+        return self.w.kind
 
-def get_datas():
-    logger = get_logger()
-    bfile = _get_last_backup()
+    @property
+    def title(self) -> str:
+        return self.w.title
 
-    logger.info(f"Using {bfile}")
-
-    ex = export_kobo.ExportKobo()
-    ex.vargs = {
-        'db': bfile,
-        'bookid': None,
-        'book': None,
-        'highlights_only': False,
-        'annotations_only': False,
-    }
-    return [Item(i) for i in ex.read_items()]
-    # TODO eh. item is barely useful, it's just putting sqlite row into an object. just use raw query?
-# nn.extraannotationdata
-# nn.kind
-# nn.kindle_my_clippings
-# nn.title
-# nn.text
-# nn.annotation
-
-# TODO ugh. better name?
-
-# TODO maybe, just query from all annotations?
-# basically, I want
-# query stuff with certain annotations ('krill')
-# query stuff with certain text properties? (one line only)
-# comparator to merge them (iid is fine??)
-def by_annotation(ann: str):
-    datas = get_datas()
-    res = []
-    for d in datas:
-        a = d.annotation
-        if a is None:
-            continue
-        if ann.lower() == a.lower().strip():
-            res.append(d)
-    return res
-
-class GenericEvent(Event):
+class OtherEvent(Event):
     def __init__(self, dt: datetime, book: str, eid: str):
         self._dt = dt
         self._book = book
         self._eid = eid
 
-class ProgressEvent(GenericEvent):
+class ProgressEvent(OtherEvent):
     def __init__(self, *args, prog: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.prog = prog
@@ -167,6 +116,11 @@ class ProgressEvent(GenericEvent):
     @property
     def summary(self) -> str:
         return f'progress on {self.book}: {self.prog}'
+
+class StartEvent(OtherEvent):
+    @property
+    def summary(self) -> str:
+        return f'started reading {self.book}'
 
 class EventTypes:
     START = 'StartReadingBook'
@@ -179,11 +133,6 @@ class AnalyticsEvents:
     Attributes = 'Attributes'
     Timestamp = 'Timestamp'
     Type = 'Type'
-
-class StartEvent(GenericEvent):
-    @property
-    def summary(self) -> str:
-        return f'started reading {self.book}'
 
 def _iter_events_aux() -> Iterator[Event]:
     for fname in _get_all_dbs():
@@ -212,13 +161,79 @@ def _iter_events_aux() -> Iterator[Event]:
                     prog=prog,
                 )
 
+def _iter_highlights() -> Iterator[Event]:
+    logger = get_logger()
+    bfile = _get_last_backup()
+
+    logger.info(f"Using {bfile} for highlights")
+
+    ex = export_kobo.ExportKobo()
+    ex.vargs = {
+        'db': bfile,
+        'bookid': None,
+        'book': None,
+        'highlights_only': False,
+        'annotations_only': False,
+    }
+    for i in ex.read_items():
+        yield Highlight(i)
+    # TODO eh. item is barely useful, it's just putting sqlite row into an object. just use raw query?
+# nn.extraannotationdata
+# nn.kind
+# nn.kindle_my_clippings
+# nn.title
+# nn.text
+# nn.annotation
+
+# TODO ugh. better name?
+
+# TODO maybe, just query from all annotations?
+# basically, I want
+# query stuff with certain annotations ('krill')
+# query stuff with certain text properties? (one line only)
+# comparator to merge them (iid is fine??)
+
 # TODO mm, could also integrate it with goodreads api?...
-def iter_events():
-    seen = set()
+def iter_events() -> Iterator[Event]:
+    yield from _iter_highlights()
+
+    seen = set() # type: Set[Event]
     for x in _iter_events_aux():
         if x not in seen:
             seen.add(x)
             yield x
 
-def get_events():
-    return list(iter_events())
+def get_events() -> List[Event]:
+    # TODO shit, dt unaware..
+    def kkey(e):
+        k = e.dt
+        if k.tzinfo is None:
+            k = k.replace(tzinfo=pytz.UTC)
+        return k
+    return list(sorted(iter_events(), key=kkey))
+
+
+from typing import Callable, Union
+# TODO maybe type over T?
+_Predicate = Callable[[str], bool]
+Predicatish = Union[str, _Predicate]
+def from_predicatish(p: Predicatish) -> _Predicate:
+    if isinstance(p, str):
+        def ff(s):
+            return s == p
+        return ff
+    else:
+        return p
+
+
+def by_annotation(predicatish: Predicatish) -> List[Highlight]:
+    pred = from_predicatish(predicatish)
+
+    datas = get_events()
+    res: List[Highlight] = []
+    for d in datas:
+        if not isinstance(d, Highlight):
+            continue
+        if pred(d.annotation):
+            res.append(d)
+    return res
