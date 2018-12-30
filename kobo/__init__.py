@@ -2,7 +2,7 @@
 from datetime import datetime
 import logging
 import os
-from typing import List, NamedTuple, Iterator, Optional, Set
+from typing import List, NamedTuple, Iterator, Optional, Set, Tuple
 from typing_extensions import Protocol
 import json
 from os.path import basename
@@ -81,6 +81,7 @@ class Highlight(Event):
     def annotation(self):
         return self.w.annotation
 
+    # TODO remove?
     @property
     def iid(self):
         # TODO shit. this is used in kobo provider.. just use eid instead..
@@ -115,7 +116,7 @@ class ProgressEvent(OtherEvent):
 
     @property
     def summary(self) -> str:
-        return f'progress on {self.book}: {self.prog}'
+        return f'progress on {self.book}: {self.prog}%'
 
 class StartEvent(OtherEvent):
     @property
@@ -167,7 +168,7 @@ def _iter_highlights() -> Iterator[Event]:
 
     logger.info(f"Using {bfile} for highlights")
 
-    ex = export_kobo.ExportKobo()
+    ex = export_kobo.ExportKobo() # type: ignore
     ex.vargs = {
         'db': bfile,
         'bookid': None,
@@ -197,10 +198,11 @@ def _iter_highlights() -> Iterator[Event]:
 def iter_events() -> Iterator[Event]:
     yield from _iter_highlights()
 
-    seen = set() # type: Set[Event]
+    seen: Set[Tuple[str, str]] = set()
     for x in _iter_events_aux():
-        if x not in seen:
-            seen.add(x)
+        kk = (x.eid, x.summary)
+        if kk not in seen:
+            seen.add(kk)
             yield x
 
 def get_events() -> List[Event]:
