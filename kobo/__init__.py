@@ -119,9 +119,12 @@ class FinishedEvent(OtherEvent):
         self.time_spent_s = time_spent_s
 
     @property
+    def time_spent(self) -> str:
+        return "undefined" if self.time_spent_s == -1 else str(self.time_spent_s // 60)
+
+    @property
     def summary(self) -> str:
-        tss = "undefined" if self.time_spent_s == -1 else self.time_spent_s // 60
-        return f'finished reading {self.book}. total time spent {tss} minutes'
+        return f'finished reading {self.book}. total time spent {self.time_spent} minutes'
 
 class LeaveEvent(OtherEvent):
     def __init__(self, *args, prog: str, seconds: int, **kwargs) -> None:
