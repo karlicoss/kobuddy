@@ -344,6 +344,12 @@ def by_annotation(predicatish: Predicatish) -> List[Highlight]:
             res.append(d)
     return res
 
+def get_todos():
+    def with_todo(ann):
+        if ann is None:
+            ann = ''
+        return 'todo' in ann.lower().split()
+    return by_annotation(with_todo)
 
 # TODO not sure where to associate it for...
 # just extract later... if I ever want some stats
