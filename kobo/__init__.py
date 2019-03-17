@@ -1,13 +1,16 @@
+#!/usr/bin/env python3
 # pip3 install dataset
 from datetime import datetime
 import logging
 import os
-from typing import List, NamedTuple, Iterator, Optional, Set, Tuple, Dict
+from typing import List, NamedTuple, Iterator, Optional, Set, Tuple, Dict, Sequence
 from typing_extensions import Protocol
 import json
 from os.path import basename
+from pathlib import Path
 import pytz
 
+from kython import cproperty
 from kython.pdatetime import parse_mdatetime
 
 import imp
@@ -15,17 +18,15 @@ export_kobo = imp.load_source('ekobo', '/L/Dropbox/repos/export-kobo/export-kobo
 
 import dataset # type: ignore
 
-_PATH = "/L/backups/kobo/"
+_PATH = Path("/L/backups/kobo/")
 
 def get_logger():
     return logging.getLogger('kobo-provider')
 
-def _get_all_dbs() -> List[str]:
-    import re
-    RE = re.compile(r'\d{8}.*.sqlite$')
-    return list(sorted([os.path.join(_PATH, f) for f in os.listdir(_PATH) if RE.search(f)]))
+def _get_all_dbs() -> List[Path]:
+    return list(sorted(_PATH.glob('*.sqlite')))
 
-def _get_last_backup() -> str:
+def _get_last_backup() -> Path:
     return max(_get_all_dbs())
 
 # TODO not sure, is protocol really necessary here?
@@ -151,7 +152,8 @@ class AnalyticsEvents:
     Timestamp = 'Timestamp'
     Type = 'Type'
 
-def _iter_events_aux() -> Iterator[Event]:
+def _iter_events_aux(**kwargs) -> Iterator[Event]:
+    # TODO handle all_ here?
     logger = get_logger()
     for fname in _get_all_dbs():
         db = dataset.connect(f'sqlite:///{fname}', reflect_views=False)
@@ -257,15 +259,15 @@ def _iter_events_aux() -> Iterator[Event]:
             else:
                 logger.warning(f'Unhandled entry of type {tp}: {row}')
 
-def _iter_highlights() -> Iterator[Event]:
+def _iter_highlights(**kwargs) -> Iterator[Event]:
     logger = get_logger()
-    bfile = _get_last_backup()
+    bfile = _get_last_backup() # TODO FIXME really last? or we want to get all??
 
     logger.info(f"Using {bfile} for highlights")
 
     ex = export_kobo.ExportKobo() # type: ignore
     ex.vargs = {
-        'db': bfile,
+        'db': str(bfile),
         'bookid': None,
         'book': None,
         'highlights_only': False,
@@ -292,17 +294,18 @@ def _iter_highlights() -> Iterator[Event]:
 # TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
 
 # TODO mm, could also integrate it with goodreads api?...
-def iter_events() -> Iterator[Event]:
-    yield from _iter_highlights()
+# TODO which order is that??
+def iter_events(**kwargs) -> Iterator[Event]:
+    yield from _iter_highlights(**kwargs)
 
     seen: Set[Tuple[str, str]] = set()
-    for x in _iter_events_aux():
+    for x in _iter_events_aux(**kwargs):
         kk = (x.eid, x.summary)
         if kk not in seen:
             seen.add(kk)
             yield x
 
-def get_events() -> List[Event]:
+def get_events(**kwargs) -> List[Event]:
     def kkey(e):
         cls_order = 0
         if isinstance(e, LeaveEvent):
@@ -316,7 +319,7 @@ def get_events() -> List[Event]:
         if k.tzinfo is None:
             k = k.replace(tzinfo=pytz.UTC)
         return (k, cls_order)
-    return list(sorted(iter_events(), key=kkey))
+    return list(sorted(iter_events(**kwargs), key=kkey))
 
 
 from typing import Callable, Union
@@ -332,16 +335,17 @@ def from_predicatish(p: Predicatish) -> _Predicate:
         return p
 
 
-def by_annotation(predicatish: Predicatish) -> List[Highlight]:
+def get_highlights(**kwargs) -> List[Highlight]:
+    events = get_events(**kwargs)
+    return list(filter(lambda x: isinstance(x, Highlight), events)) # type: ignore
+
+def by_annotation(predicatish: Predicatish, **kwargs) -> List[Highlight]:
     pred = from_predicatish(predicatish)
 
-    datas = get_events()
     res: List[Highlight] = []
-    for d in datas:
-        if not isinstance(d, Highlight):
-            continue
-        if pred(d.annotation):
-            res.append(d)
+    for h in get_highlights(**kwargs):
+        if pred(h.annotation):
+            res.append(h)
     return res
 
 def get_todos():
@@ -351,18 +355,33 @@ def get_todos():
         return 'todo' in ann.lower().split()
     return by_annotation(with_todo)
 
+class Page(NamedTuple):
+    highlights: Sequence[Highlight]
+
+
+def get_pages():
+    pass
+
 # TODO not sure where to associate it for...
 # just extract later... if I ever want some stats
 # TODO content database --  Readstatus (2, 1, 0), __PercentRead
 # TODO it also contains lots of extra stuff...
 
+def test_todos():
+    todos = get_todos()
+    assert len(todos) > 3
+
+def test_get_all():
+    for d in get_events():
+        print(d)
+
 
 def main():
     from kython.klogging import setup_logzero
     logger = get_logger()
-    setup_logzero(logger, level=logging.info)
-    for d in get_events():
-        print(d)
+    setup_logzero(logger, level=logging.INFO)
+
+    test_get_all()
 
 
 if __name__ == '__main__':
