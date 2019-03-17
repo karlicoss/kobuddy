@@ -10,7 +10,7 @@ from os.path import basename
 from pathlib import Path
 import pytz
 
-from kython import cproperty
+from kython import cproperty, group_by_key, the
 from kython.pdatetime import parse_mdatetime
 
 import imp
@@ -33,8 +33,12 @@ def _get_last_backup() -> Path:
 # TODO maybe what we really want is parsing batch of dates? Then it's easier to guess the format.
 class Event(Protocol):
     @property
-    def dt(self) -> Optional[datetime]:
+    def dt(self) -> datetime: # TODO deprecate?
         return self._dt # type: ignore
+
+    @property
+    def created(self) -> datetime:
+        return self.dt
 
     # books don't necessarily have title/author, so this is more generic..
     @property
@@ -61,8 +65,10 @@ class Highlight(Event):
 
     # modified is either same as created or 0 timestamp. anyway, not very interesting
     @property
-    def dt(self) -> Optional[datetime]:
-        return parse_mdatetime(self.w.datecreated)
+    def dt(self) -> datetime:
+        res = parse_mdatetime(self.w.datecreated)
+        assert res is not None
+        return res
 
     @property
     def book(self) -> str:
@@ -259,7 +265,7 @@ def _iter_events_aux(**kwargs) -> Iterator[Event]:
             else:
                 logger.warning(f'Unhandled entry of type {tp}: {row}')
 
-def _iter_highlights(**kwargs) -> Iterator[Event]:
+def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
     bfile = _get_last_backup() # TODO FIXME really last? or we want to get all??
 
@@ -336,8 +342,7 @@ def from_predicatish(p: Predicatish) -> _Predicate:
 
 
 def get_highlights(**kwargs) -> List[Highlight]:
-    events = get_events(**kwargs)
-    return list(filter(lambda x: isinstance(x, Highlight), events)) # type: ignore
+    return list(sorted(_iter_highlights(**kwargs), key=lambda h: h.created))
 
 def by_annotation(predicatish: Predicatish, **kwargs) -> List[Highlight]:
     pred = from_predicatish(predicatish)
@@ -358,9 +363,26 @@ def get_todos():
 class Page(NamedTuple):
     highlights: Sequence[Highlight]
 
+    @cproperty
+    def book(self) -> str:
+        return the(h.book for h in self.highlights)
 
-def get_pages():
-    pass
+    @cproperty
+    def dt(self) -> datetime:
+        # makes more sense to move 'last modified' pages to the end
+        return max(h.dt for h in self.highlights)
+
+
+def get_pages(**kwargs) -> List[Page]:
+    highlights = get_highlights(**kwargs)
+    grouped = group_by_key(highlights, key=lambda e: e.book)
+    pages = []
+    for book, group in grouped.items():
+        sgroup = tuple(sorted(group, key=lambda e: e.created))
+        pages.append(Page(highlights=sgroup))
+    pages = list(sorted(pages, key=lambda p: p.dt))
+    return pages
+
 
 # TODO not sure where to associate it for...
 # just extract later... if I ever want some stats
@@ -375,13 +397,18 @@ def test_get_all():
     for d in get_events():
         print(d)
 
+def test_pages():
+    for p in get_pages():
+        print(p)
+
 
 def main():
     from kython.klogging import setup_logzero
     logger = get_logger()
     setup_logzero(logger, level=logging.INFO)
 
-    test_get_all()
+    test_pages()
+    # test_get_all()
 
 
 if __name__ == '__main__':
