@@ -356,3 +356,14 @@ def get_todos():
 # TODO content database --  Readstatus (2, 1, 0), __PercentRead
 # TODO it also contains lots of extra stuff...
 
+
+def main():
+    from kython.klogging import setup_logzero
+    logger = get_logger()
+    setup_logzero(logger, level=logging.info)
+    for d in get_events():
+        print(d)
+
+
+if __name__ == '__main__':
+    main()
