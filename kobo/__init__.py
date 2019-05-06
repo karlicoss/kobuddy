@@ -14,7 +14,7 @@ from kython import cproperty, group_by_key, the
 from kython.pdatetime import parse_mdatetime
 
 import imp
-export_kobo = imp.load_source('ekobo', '/L/Dropbox/repos/export-kobo/export-kobo.py') # type: ignore
+export_kobo = imp.load_source('ekobo', '/L/zzz_syncthing/repos/export-kobo/export-kobo.py') # type: ignore
 
 import dataset # type: ignore
 
@@ -383,10 +383,16 @@ def get_pages(**kwargs) -> List[Page]:
     pages = list(sorted(pages, key=lambda p: p.dt))
     return pages
 
+# TODO content database --  Readstatus (2, 1, 0), __PercentRead
+# -- use it to estimate progress over time -- not activity apparently disappears often :(
+
+# TODO Event table? got all sort of things from june 2017
+# 1012 looks like starting to read..
+# 46 -- opening?
+# 1012/1013 -- finishing?
 
 # TODO not sure where to associate it for...
 # just extract later... if I ever want some stats
-# TODO content database --  Readstatus (2, 1, 0), __PercentRead
 # TODO it also contains lots of extra stuff...
 
 def test_todos():
