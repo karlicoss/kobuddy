@@ -8,6 +8,7 @@ from typing_extensions import Protocol
 import json
 from os.path import basename
 from pathlib import Path
+from functools import lru_cache
 import pytz
 
 from kython import cproperty, group_by_key, the
@@ -162,7 +163,7 @@ def _iter_events_aux(**kwargs) -> Iterator[Event]:
     # TODO handle all_ here?
     logger = get_logger()
     for fname in _get_all_dbs():
-        db = dataset.connect(f'sqlite:///{fname}', reflect_views=False)
+        db = dataset.connect(f'sqlite:///{fname}', reflect_views=False, ensure_schema=False) # TODO ??? 
 
         content_table = db.load_table('content')
         # wtf... that fails with some sqlalchemy crap
@@ -179,9 +180,10 @@ def _iter_events_aux(**kwargs) -> Iterator[Event]:
                 cur = title2time[title]
             title2time[title] = max(cur, reading)
 
-        events_table = db.load_table('AnalyticsEvents')
-        for row in events_table.all():
-            AE = AnalyticsEvents
+        AE = AnalyticsEvents
+        # events_table = db.load_table('AnalyticsEvents')
+        # TODO ugh. used to be events_table.all(), but started getting some 'Mandatory' field with a wrong schema at some point...
+        for row in db.query(f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'): # TODO order by??
             eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
             ts = parse_mdatetime(ts) # TODO make dynamic?
             att = json.loads(att)
@@ -400,11 +402,15 @@ def test_todos():
     assert len(todos) > 3
 
 def test_get_all():
-    for d in get_events():
+    events = get_events()
+    assert len(events) > 50
+    for d in events:
         print(d)
 
 def test_pages():
-    for p in get_pages():
+    pages = get_pages()
+    assert len(pages) > 10
+    for p in pages:
         print(p)
 
 
@@ -413,8 +419,11 @@ def main():
     logger = get_logger()
     setup_logzero(logger, level=logging.INFO)
 
-    test_pages()
+    for e in iter_events():
+        print(e)
+    # test_pages()
     # test_get_all()
+
 
 
 if __name__ == '__main__':
