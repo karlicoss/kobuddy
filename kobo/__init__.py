@@ -27,8 +27,21 @@ def get_logger():
 def _get_all_dbs() -> List[Path]:
     return list(sorted(_PATH.glob('*.sqlite')))
 
-def _get_last_backup() -> Path:
-    return max(_get_all_dbs())
+
+ContentId = str
+
+# some things are only set for book parts: e.g. BookID, BookTitle
+class Book(NamedTuple):
+    content_id: ContentId
+    isbn: str
+    title: str
+    author: str
+    # time_spent: int # TODO not sure..
+    # percent: int
+
+    def __repr__(self):
+        return f'{self.title} by {self.author}'
+
 
 # TODO not sure, is protocol really necessary here?
 # TODO maybe what we really want is parsing batch of dates? Then it's easier to guess the format.
@@ -43,7 +56,7 @@ class Event(Protocol):
 
     # books don't necessarily have title/author, so this is more generic..
     @property
-    def book(self) -> str:
+    def book(self) -> Book:
         return self._book # type: ignore
 
     @property
@@ -56,24 +69,28 @@ class Event(Protocol):
         return f'event in {self.book}'
 
     def __repr__(self) -> str:
-        return f'{self.dt}: {self.summary}'
+        return f'{self.dt.strftime("%Y-%m-%d %H:%M:%S")}: {self.summary}'
 
 
 class Highlight(Event):
 
-    def __init__(self, w):
+    def __init__(self, w, book: Book):
         self.w = w
+        self._book = book
 
     # modified is either same as created or 0 timestamp. anyway, not very interesting
     @property
     def dt(self) -> datetime:
         res = parse_mdatetime(self.w.datecreated)
         assert res is not None
+        res = pytz.utc.localize(res) # I check and it's definitely UTC
         return res
 
-    @property
-    def book(self) -> str:
-        return f'{self.title}' # TODO  by {self.author}'
+    # @property
+    # def book(self) -> Book: # TODO FIXME should handle it carefully in kobo provider users
+    #     return self.book
+        # raise RuntimeError
+        # return f'{self.title}' # TODO  by {self.author}'
 
     @property
     def summary(self) -> str:
@@ -102,7 +119,7 @@ class Highlight(Event):
         return self.w.title
 
 class OtherEvent(Event):
-    def __init__(self, dt: datetime, book: str, eid: str):
+    def __init__(self, dt: datetime, book: Book, eid: str):
         self._dt = dt
         self._book = book
         self._eid = eid
@@ -152,6 +169,8 @@ class EventTypes:
     LEAVE_CONTENT = 'LeaveContent'
 
 
+# ugh. looks like it's only got one day of retention??
+# TODO need to generate 'artificial' progress events from Books?
 class AnalyticsEvents:
     Id = 'Id'
     Attributes = 'Attributes'
@@ -159,26 +178,116 @@ class AnalyticsEvents:
     Timestamp = 'Timestamp'
     Type = 'Type'
 
-def _iter_events_aux(**kwargs) -> Iterator[Event]:
+
+from kython import make_dict, group_by_key
+
+class Books:
+    def __init__(self) -> None:
+        self.cid2books: Dict[str, List[Book]] = {}
+        self.isbn2books: Dict[str, List[Book]] = {}
+        self.title2books: Dict[str, List[Book]] = {}
+
+    @staticmethod
+    def _reg(dct, key, book):
+        books = dct.get(key, [])
+        present = any((b.title, b.author) == (book.title, book.author) for b in books)
+        if not present:
+            books.append(book)
+            # TODO really need to split out time_spent and percent.....
+        dct[key] = books
+
+    @staticmethod
+    def _get(dct, key) -> Optional[Book]:
+        bb = dct.get(key, [])
+        if len(bb) == 0:
+            return None
+        elif len(bb) == 1:
+            return bb[0]
+        else:
+            raise RuntimeError(key)
+
+    def add(self, book: Book):
+        Books._reg(self.cid2books, book.content_id, book)
+        Books._reg(self.isbn2books, book.isbn, book)
+        Books._reg(self.title2books, book.title, book)
+
+    def by_content_id(self, cid: ContentId) -> Optional[Book]:
+        return Books._get(self.cid2books, cid)
+
+    def by_isbn(self, isbn: str) -> Optional[Book]:
+        return Books._get(self.isbn2books, isbn)
+
+    def by_title(self, title: str) -> Optional[Book]:
+        return Books._get(self.title2books, title)
+
+
+    # TODO bad name..
+    def by_dict(self, d) -> Book:
+        vid = d.get('volumeid', None)
+        isbn = d.get('isbn', None)
+        # 20181021, volumeid and isbn are not present for StartReadingBook
+        title = d.get('title', None)
+        res = None
+        if vid is not None:
+            res = self.by_content_id(vid)
+        elif isbn is not None:
+            res = self.by_isbn(isbn)
+        elif title is not None:
+            res = self.by_title(title)
+        assert res is not None
+        return res
+
+def get_books(db) -> List[Book]:
+    logger = get_logger()
+    content_table = db.load_table('content')
+    # wtf... that fails with some sqlalchemy crap
+    # books = content_table.find(ContentType=6)
+    # shit, no book id weirdly...
+    books = db.query('SELECT * FROM content WHERE ContentType=6')
+    items = []
+    for b in books:
+        content_id = b['ContentID']
+        isbn = b['ISBN']
+        title = b['Title'].strip() # ugh. not sure about that, but sometimes helped 
+        author = b['Attribution']
+        time_spent = b['TimeSpentReading']
+        percent = b['___PercentRead'] # TODO ok, it's a bit useless because it's only a snapshot...
+
+        items.append(Book(
+            content_id=content_id,
+            isbn=isbn,
+            title=title,
+            author=author,
+            # TODO FIXME
+            # time_spent=time_spent,
+            # percent=percent,
+        ))
+        # TODO ???
+        # cur = 0
+        # if title in title2time:
+        #     logger.warning('%s: trying to handle book twice! %s', db.url, title)
+        #     cur = title2time[title]
+        # title2time[title] = max(cur, reading)
+    return items
+
+
+def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
     # TODO handle all_ here?
     logger = get_logger()
-    for fname in _get_all_dbs():
+    dbs = _get_all_dbs()
+    if limit is not None:
+        # pylint: disable=invalid-unary-operand-type
+        dbs = dbs[-limit:]
+
+    books = Books()
+
+    for fname in dbs:
+        logger.info('processing %s', fname)
         db = dataset.connect(f'sqlite:///{fname}', reflect_views=False, ensure_schema=False) # TODO ??? 
 
-        content_table = db.load_table('content')
-        # wtf... that fails with some sqlalchemy crap
-        # books = content_table.find(ContentType=6)
-        # shit, no book id weirdly...
-        books = db.query('SELECT * FROM content WHERE ContentType=6')
-        title2time: Dict[str, int] = {}
-        for b in books:
-            title = b['Title']
-            reading = b['TimeSpentReading']
-            cur = 0
-            if title in title2time:
-                logger.warning('%s: trying to handle book twice! %s', fname, title)
-                cur = title2time[title]
-            title2time[title] = max(cur, reading)
+        for b in get_books(db):
+            books.add(b)
+
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
@@ -190,12 +299,18 @@ def _iter_events_aux(**kwargs) -> Iterator[Event]:
             met = json.loads(met)
             if tp == EventTypes.LEAVE_CONTENT:
                 # TODO mm. keep only the last in group?...
-                descr = f"{att.get('title', '')} by {att.get('author', '')}"
+                # descr = f"{att.get('title', '')} by {att.get('author', '')}"
+                # TODO volumeid
+
+                book = books.by_dict(att)
+
                 prog = att.get('progress', '0')
-                secs = int(met.get('SecondsRead', 0))
+                # TODO progress is not always present??
+                secs = int(met.get('SecondsRead', 0)) # TODO not sure..
+                # TODO pages turned?
                 ev = LeaveEvent(
                     dt=ts,
-                    book=descr,
+                    book=book,
                     eid=eid,
                     prog=prog,
                     seconds=secs,
@@ -203,33 +318,32 @@ def _iter_events_aux(**kwargs) -> Iterator[Event]:
                 if secs >= 60:
                     yield ev
                 else:
-                    logger.info("skipping %s, it's too short", ev)
+                    logger.debug("skipping %s, it's too short", ev)
             elif tp == EventTypes.START:
-                descr = f"{att.get('title', '')} by {att.get('author', '')}"
+                book = books.by_dict(att)
                 yield StartEvent(
                     dt=ts,
-                    book=descr,
+                    book=book,
                     eid=eid,
                 )
             elif tp == EventTypes.PROGRESS:
-                prog = att.get('progress', '')
-                vol = att.get('volumeid', '')
-                descr = basename(vol) # TODO retrieve it somehow?..
+                book = books.by_dict(att)
+                prog = att['progress']
                 yield ProgressEvent(
                     dt=ts,
-                    book=descr,
+                    book=book,
                     eid=eid,
                     prog=prog,
                 )
             elif tp == EventTypes.FINISHED:
-                title = att.get('title', '')
-                author = att.get('author', '')
-                descr = f"{title} by {author}"
+                book = books.by_dict(att)
+                # TODO maybe need to emit time_spent separately?..
                 yield FinishedEvent(
                     dt=ts,
-                    book=descr,
+                    book=book,
                     eid=eid,
-                    time_spent_s=title2time.get(title, -1),
+                    time_spent_s=-1, # TODO FIXME
+                    # time_spent_s=book.time_spent,
                 )
             elif tp in (
                     'AdobeErrorEncountered',
@@ -248,12 +362,18 @@ def _iter_events_aux(**kwargs) -> Iterator[Event]:
                     'StoreBookClicked',
                     'StoreHome',
                     'Books', # not even clear what's it for
+                    'ChangedSetting',
+                    'AmbientLightSensorToggled',
+                    'QuickTurnTriggered',
+                    'ButtonSwapPreferences',
+                    'SearchExecuted',
             ):
                 pass # just ignore
             elif tp in (
                     # This will be handled later..
                     'CreateBookmark',
                     'CreateHighlight',
+                    'CreateNote', # TODO??
             ):
                 pass
             elif tp in (
@@ -267,9 +387,24 @@ def _iter_events_aux(**kwargs) -> Iterator[Event]:
             else:
                 logger.warning(f'Unhandled entry of type {tp}: {row}')
 
+
+def _get_last_backup() -> Path:
+    return max(_get_all_dbs())
+
 def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
+
+
     bfile = _get_last_backup() # TODO FIXME really last? or we want to get all??
+
+    books = Books()
+    db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
+    for b in get_books(db):
+        books.add(b)
+
+
+
+    # TODO SHIT! definitely, e.g. if you delete book from device, hightlights/bookmarks just go. can check on mathematician's apology from 20180902
 
     logger.info(f"Using {bfile} for highlights")
 
@@ -282,7 +417,9 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
         'annotations_only': False,
     }
     for i in ex.read_items():
-        yield Highlight(i)
+        book = books.by_content_id(i.volumeid)
+        assert book is not None
+        yield Highlight(i, book=book)
     # TODO eh. item is barely useful, it's just putting sqlite row into an object. just use raw query?
 # nn.extraannotationdata
 # nn.kind
@@ -366,7 +503,7 @@ class Page(NamedTuple):
     highlights: Sequence[Highlight]
 
     @cproperty
-    def book(self) -> str:
+    def book(self) -> Book: # TODO is gonna be used outside..
         return the(h.book for h in self.highlights)
 
     @cproperty
@@ -417,13 +554,21 @@ def test_pages():
 def main():
     from kython.klogging import setup_logzero
     logger = get_logger()
-    setup_logzero(logger, level=logging.INFO)
+    setup_logzero(logger, level=logging.DEBUG)
 
-    for e in iter_events():
-        print(e)
+    evts = iter_events(limit=30)
+    # evts = filter(lambda x: not isinstance(x, Highlight), evts)
+
+    from kython import group_by_key
+    for book, events in group_by_key(evts, key=lambda e: e.book).items():
+        print(type(book), book, book.content_id)
+        for e in sorted(events, key=lambda e: e.dt): # TODO not sure when should be sorted
+            # TODO shit. offset
+            print("-- " + str(e))
     # test_pages()
     # test_get_all()
 
+# import sys; exec("global info\ndef info(type, value, tb):\n    import ipdb, traceback; traceback.print_exception(type, value, tb); ipdb.pm()"); sys.excepthook = info # type: ignore
 
 
 if __name__ == '__main__':
