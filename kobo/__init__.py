@@ -75,6 +75,17 @@ class Event(Protocol):
     def __repr__(self) -> str:
         return f'{self.dt.strftime("%Y-%m-%d %H:%M:%S")}: {self.summary}'
 
+def _parse_utcdt(s) -> Optional[datetime]:
+    if s is None:
+        return None
+    res = parse_mdatetime(s)
+    if res is None:
+        return None
+    else:
+        if res.tzinfo is None:
+            res = pytz.utc.localize(res)
+        return res
+
 
 class Highlight(Event):
 
@@ -85,9 +96,9 @@ class Highlight(Event):
     # modified is either same as created or 0 timestamp. anyway, not very interesting
     @property
     def dt(self) -> datetime:
-        res = parse_mdatetime(self.w.datecreated)
+        # I checked and it's definitely UTC
+        res = _parse_utcdt(self.w.datecreated)
         assert res is not None
-        res = pytz.utc.localize(res) # I check and it's definitely UTC
         return res
 
     # @property
@@ -127,6 +138,21 @@ class OtherEvent(Event):
         self._dt = dt
         self._book = book
         self._eid = eid
+
+class MiscEvent(OtherEvent):
+    def __init__(self, dt: datetime, book: Book, payload):
+        self._dt = dt
+        self._book = book
+        self._eid = "TODO FIXME"
+        self.payload = payload
+
+    @property
+    def summary(self) -> str:
+        return str(self.payload)
+
+class BookFinished(MiscEvent):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs, payload='finished') # type: ignore
 
 class ProgressEvent(OtherEvent):
     def __init__(self, *args, prog: str, **kwargs) -> None:
@@ -241,7 +267,14 @@ class Books:
         assert res is not None
         return res
 
-def get_books(db) -> List[Book]:
+class Extra(NamedTuple):
+    time_spent: int
+    percent: int
+    status: int
+    last_read: Optional[datetime]
+
+
+def get_books(db) -> List[Tuple[Book, Extra]]:
     logger = get_logger()
     content_table = db.load_table('content')
     # wtf... that fails with some sqlalchemy crap
@@ -251,31 +284,45 @@ def get_books(db) -> List[Book]:
     items = []
     for b in books:
         content_id = b['ContentID']
-        isbn = b['ISBN']
-        title = b['Title'].strip() # ugh. not sure about that, but sometimes helped 
-        author = b['Attribution']
-        time_spent = b['TimeSpentReading']
-        percent = b['___PercentRead'] # TODO ok, it's a bit useless because it's only a snapshot...
+        isbn       = b['ISBN']
+        title      = b['Title'].strip() # ugh. not sure about that, but sometimes helped 
+        author     = b['Attribution']
 
-        items.append(Book(
+        time_spent = b['TimeSpentReading']
+        percent    = b['___PercentRead']
+        status     = int(b['ReadStatus'])
+        last_read  = b['DateLastRead']
+
+        book = Book(
             content_id=content_id,
             isbn=isbn,
             title=title,
             author=author,
-            # TODO FIXME
-            # time_spent=time_spent,
-            # percent=percent,
-        ))
-        # TODO ???
-        # cur = 0
-        # if title in title2time:
-        #     logger.warning('%s: trying to handle book twice! %s', db.url, title)
-        #     cur = title2time[title]
-        # title2time[title] = max(cur, reading)
+        )
+        extra = Extra(
+            time_spent=time_spent,
+            percent=percent,
+            status=status,
+            last_read=_parse_utcdt(last_read),
+        )
+        items.append((book, extra))
     return items
 
 
 def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
+    class EventTbl:
+        EventType      = 'EventType'
+        EventCount     = 'EventCount'
+        LastOccurrence = 'LastOccurrence'
+        ContentID      = 'ContentID'
+        # TODO ExtraData got some interesting blobs..
+
+        class Types:
+            BOOK_FINISHED = 5
+
+    # 5 always appears as one of the last events. also seems to be same as DateLastRead. So reasonable to assume it means book finished
+    # 80 occurs in pair with 5, but also sometimes repeats for dozens of times. 
+
     # TODO handle all_ here?
     logger = get_logger()
     dbs = _get_all_dbs()
@@ -289,9 +336,40 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         logger.info('processing %s', fname)
         db = dataset.connect(f'sqlite:///{fname}', reflect_views=False, ensure_schema=False) # TODO ??? 
 
-        for b in get_books(db):
+        for b, extra in get_books(db):
             books.add(b)
+            if extra.status == 2:
+                dt = extra.last_read
+                assert dt is not None
+                yield BookFinished(dt=dt, book=b)
 
+        ET = EventTbl
+        for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID} from Event'): # TODO order by?
+            tp, count, last, cid = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID]
+            if tp in (
+                    46, # ???
+                    80,
+            ):
+                continue
+
+            if count != 1:
+                # logger.debug('ignoring %s', row)
+                continue
+
+            dt = _parse_utcdt(last)
+            assert dt is not None
+
+            book = books.by_content_id(cid)
+            # TODO should assert this in 'full' mode when we rebuild from the very start...
+            # assert book is not None
+            if book is None:
+                logger.warning('book not found: %s', cid)
+                continue
+
+            if tp == ET.Types.BOOK_FINISHED:
+                yield BookFinished(dt=dt, book=book)
+            else:
+                yield MiscEvent(dt=dt, book=book, payload=row)
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
@@ -404,7 +482,7 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
 
     books = Books()
     db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
-    for b in get_books(db):
+    for b, _ in get_books(db):
         books.add(b)
 
 
@@ -448,9 +526,9 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
 def iter_events(**kwargs) -> Iterator[Event]:
     yield from _iter_highlights(**kwargs)
 
-    seen: Set[Tuple[str, str]] = set()
+    seen: Set[Tuple] = set()
     for x in _iter_events_aux(**kwargs):
-        kk = (x.eid, x.summary)
+        kk = (x.dt, x.book, x.eid, x.summary)
         if kk not in seen:
             seen.add(kk)
             yield x
@@ -561,11 +639,15 @@ def main():
     logger = get_logger()
     setup_logzero(logger, level=logging.DEBUG)
 
-    evts = iter_events(limit=30)
+    # TODO also events shouldn't be cumulative?
+    evts = iter_events(limit=10)
     # evts = filter(lambda x: not isinstance(x, Highlight), evts)
 
     from kython import group_by_key
     for book, events in group_by_key(evts, key=lambda e: e.book).items():
+        # if book.content_id != 'b09b236c-9a6e-44b7-9727-8187d98d8419':
+        #     continue
+        print()
         print(type(book), book, book.content_id)
         for e in sorted(events, key=lambda e: e.dt): # TODO not sure when should be sorted
             # TODO shit. offset
