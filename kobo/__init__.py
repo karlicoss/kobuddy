@@ -27,7 +27,6 @@ def get_logger():
 def _get_all_dbs() -> List[Path]:
     return list(sorted(_PATH.glob('*.sqlite')))
 
-
 ContentId = str
 
 # some things are only set for book parts: e.g. BookID, BookTitle
@@ -36,8 +35,6 @@ class Book(NamedTuple):
     isbn: str
     title: str
     author: str
-    # time_spent: int # TODO not sure..
-    # percent: int
 
     def __repr__(self):
         return f'{self.title} by {self.author}'
@@ -234,7 +231,7 @@ class Books:
         elif len(bb) == 1:
             return bb[0]
         else:
-            raise RuntimeError(key)
+            raise RuntimeError(f"Multiple items for {key}: {bb}")
 
     def add(self, book: Book):
         Books._reg(self.cid2books, book.content_id, book)
@@ -274,14 +271,17 @@ class Extra(NamedTuple):
     last_read: Optional[datetime]
 
 
-def get_books(db) -> List[Tuple[Book, Extra]]:
+def get_books(db) -> List[Tuple[Book, Optional[Extra]]]:
     logger = get_logger()
     content_table = db.load_table('content')
     # wtf... that fails with some sqlalchemy crap
     # books = content_table.find(ContentType=6)
     # shit, no book id weirdly...
+    items: List[Tuple[Book, Optional[Extra]]] = []
+    # for book in MANUAL_BOOKS:
+    #     items.append((book, None))
+
     books = db.query('SELECT * FROM content WHERE ContentType=6')
-    items = []
     for b in books:
         content_id = b['ContentID']
         isbn       = b['ISBN']
@@ -310,6 +310,9 @@ def get_books(db) -> List[Tuple[Book, Extra]]:
 
 
 def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
+    # TODO Event table? got all sort of things from june 2017
+    # 1012 looks like starting to read..
+    # 1012/1013 -- finishing?
     class EventTbl:
         EventType      = 'EventType'
         EventCount     = 'EventCount'
@@ -318,10 +321,21 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         # TODO ExtraData got some interesting blobs..
 
         class Types:
+            # 5 always appears as one of the last events. also seems to be same as DateLastRead. So reasonable to assume it means book finished
             BOOK_FINISHED = 5
 
-    # 5 always appears as one of the last events. also seems to be same as DateLastRead. So reasonable to assume it means book finished
-    # 80 occurs in pair with 5, but also sometimes repeats for dozens of times. 
+            # 80 occurs in pair with 5, but also sometimes repeats for dozens of times. 
+            T80 = 80
+
+            # some random totally unrelated timestamp appearing for some Epubs
+            T37 = 37
+
+            # some random crap. could be book opening??
+            T46 = 46
+
+            PROGRESS_25 = 1012
+            PROGRESS_50 = 1013
+            PROGRESS_75 = 1014
 
     # TODO handle all_ here?
     logger = get_logger()
@@ -338,6 +352,8 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
 
         for b, extra in get_books(db):
             books.add(b)
+            if extra is None:
+                continue
             if extra.status == 2:
                 dt = extra.last_read
                 assert dt is not None
@@ -347,28 +363,34 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID} from Event'): # TODO order by?
             tp, count, last, cid = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID]
             if tp in (
-                    46, # ???
-                    80,
+                    ET.Types.T46,
+                    ET.Types.T37,
+                    ET.Types.T80,
             ):
-                continue
-
-            if count != 1:
-                # logger.debug('ignoring %s', row)
                 continue
 
             dt = _parse_utcdt(last)
             assert dt is not None
 
-            book = books.by_content_id(cid)
             # TODO should assert this in 'full' mode when we rebuild from the very start...
             # assert book is not None
+            book = books.by_content_id(cid)
             if book is None:
-                logger.warning('book not found: %s', cid)
+                logger.warning('book not found: %s', row)
                 continue
 
             if tp == ET.Types.BOOK_FINISHED:
                 yield BookFinished(dt=dt, book=book)
+            elif tp == ET.Types.PROGRESS_25:
+                yield MiscEvent(dt=dt, book=book, payload='25%') # TODO group with analytic event crap (or ignore it altogether?)
+            elif tp == ET.Types.PROGRESS_50:
+                yield MiscEvent(dt=dt, book=book, payload='50%')
+            elif tp == ET.Types.PROGRESS_75:
+                yield MiscEvent(dt=dt, book=book, payload='75%')
             else:
+                if count != 1:
+                    continue
+
                 yield MiscEvent(dt=dt, book=book, payload=row)
 
         AE = AnalyticsEvents
@@ -605,17 +627,6 @@ def get_pages(**kwargs) -> List[Page]:
     pages = list(sorted(pages, key=lambda p: p.dt))
     return pages
 
-# TODO content database --  Readstatus (2, 1, 0), __PercentRead
-# -- use it to estimate progress over time -- not activity apparently disappears often :(
-
-# TODO Event table? got all sort of things from june 2017
-# 1012 looks like starting to read..
-# 46 -- opening?
-# 1012/1013 -- finishing?
-
-# TODO not sure where to associate it for...
-# just extract later... if I ever want some stats
-# TODO it also contains lots of extra stuff...
 
 def test_todos():
     todos = get_todos()
@@ -633,6 +644,7 @@ def test_pages():
     for p in pages:
         print(p)
 
+# TODO need to merge 'progress' and 'left'
 
 def main():
     from kython.klogging import setup_logzero
@@ -640,7 +652,7 @@ def main():
     setup_logzero(logger, level=logging.DEBUG)
 
     # TODO also events shouldn't be cumulative?
-    evts = iter_events(limit=10)
+    evts = iter_events(limit=5)
     # evts = filter(lambda x: not isinstance(x, Highlight), evts)
 
     from kython import group_by_key
