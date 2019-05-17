@@ -42,6 +42,10 @@ class Book(NamedTuple):
     def __repr__(self):
         return f'{self.title} by {self.author}'
 
+    @property
+    def bid(self) -> str:
+        return self.content_id # not sure but maybe it's fine...
+
 
 # TODO not sure, is protocol really necessary here?
 # TODO maybe what we really want is parsing batch of dates? Then it's easier to guess the format.
@@ -371,6 +375,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 pass # just ignore
             elif tp in (
                     # This will be handled later..
+                    'MarkAsFinished',
                     'CreateBookmark',
                     'CreateHighlight',
                     'CreateNote', # TODO??
