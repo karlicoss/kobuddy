@@ -9,8 +9,8 @@ import json
 from os.path import basename
 from pathlib import Path
 from functools import lru_cache
+import struct
 import pytz
-from kython import cproperty
 
 from kython import cproperty, group_by_key, the
 from kython.pdatetime import parse_mdatetime
@@ -316,16 +316,25 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         # TODO ExtraData got some interesting blobs..
 
         class Types:
-            # 5 always appears as one of the last events. also seems to be same as DateLastRead. So reasonable to assume it means book finished
+            # occurs occasionally throughout reading.. first event looks like a good candidate for 'started to read'
+            T3 = 3
+
+            # always appears as one of the last events. also seems to be same as DateLastRead. So reasonable to assume it means book finished
             BOOK_FINISHED = 5
 
-            # 80 occurs in pair with 5, but also sometimes repeats for dozens of times. 
+            # could be book purchases? although for one book, occurst 4 times so doesn't make sense..
+            T7 = 7
+
+            # looks like dictionary lookups (judging to DictionaryName in blob)
+            T9 = 9
+
+            # 80 occurs in pair with 5, but also sometimes repeats for dozens of times.
             T80 = 80
 
             # some random totally unrelated timestamp appearing for some Epubs
             T37 = 37
 
-            # some random crap. could be book opening??
+            # happens very often, sometimes in bursts of 5 over 5 seconds. could be page turns?
             T46 = 46
 
             PROGRESS_25 = 1012
@@ -333,8 +342,11 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             PROGRESS_50 = 1013
             PROGRESS_75 = 1014
 
-            T9 = 9
-            # TODO 9 might be 'started' reading?
+            # almost always occurs in pairs with T3, but not sure what is it
+            T1020 = 1020
+
+            # 1021 seems to coincide with 'progress'
+            T1021 = 1021
 
     # TODO handle all_ here?
     logger = get_logger()
@@ -353,19 +365,25 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             books.add(b)
             if extra is None:
                 continue
+            dt = extra.last_read
             if extra.status == 2:
-                dt = extra.last_read
                 assert dt is not None
                 yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=b.content_id)
 
         ET = EventTbl
+        ETT = ET.Types
         for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'): # TODO order by?
             tp, count, last, cid, checksum, extra_data = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum], row[f'hex({ET.ExtraData})']
             eid = checksum
             if tp in (
-                    ET.Types.T46,
-                    ET.Types.T37,
-                    ET.Types.T80,
+                    ETT.T37,
+                    ETT.T7,
+                    ETT.T9,
+                    ETT.T1020,
+                    ETT.T80,
+                    ETT.T46,
+
+                    ETT.T1021,
             ):
                 continue
 
@@ -376,43 +394,42 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 warnings.warn(f'book not found: {row}')
                 continue
 
-            # TODO def needs tests..
-            import struct
-            if tp == 3:
-                blob = bytearray.fromhex(extra_data)
-                dts = []
-                _, zz, _, cnt = struct.unpack('>8s30s5sI', blob[:47])
-                assert zz[1::2] == b'eventTimestamps'
-                # assert cnt == count
-                # TODO ok, it happens.. warn about event count mismatch??
+            # TODO FIXME need unique uid...
+            # TODO def needs tests.. need to run ignored through tests as well
+            if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
+                logger.error('unexpected event: %s %s', book, row)
+                raise RuntimeError(str(row))
 
-                pos = 52
-                for _ in range(cnt):
-                    ts, = struct.unpack('>I', blob[pos:pos+4])
-                    pos += 9
-                    dts.append(datetime.utcfromtimestamp(ts))
-                for x in dts:
-                    yield MiscEvent(dt=pytz.utc.localize(x), book=book, payload='EVENT 3')
-
-            dt = _parse_utcdt(last)
-            assert dt is not None
-
-
-            if tp == ET.Types.BOOK_FINISHED:
-                yield FinishedEvent(dt=dt, book=book, eid=eid)
-            elif tp == ET.Types.PROGRESS_25:
-                yield ProgressEvent(dt=dt, book=book, prog=25, eid=eid) # TODO group with analytic event crap (or ignore it altogether?)
-            elif tp == ET.Types.PROGRESS_50:
-                yield ProgressEvent(dt=dt, book=book, prog=50, eid=eid)
-            elif tp == ET.Types.PROGRESS_75:
-                yield ProgressEvent(dt=dt, book=book, prog=75, eid=eid)
-            elif tp == ET.Types.T9:
-                yield MiscEvent(dt=dt, book=book, payload='STARTED???')
-            else:
-                if count != 1:
+            blob = bytearray.fromhex(extra_data)
+            if tp == ETT.T46:
+                # it's gote some extra stuff before timestamps for we need to locate timestamps first
+                found = blob.find(b'\x00e\x00v') # TODO this might be a bit slow, could be good to decypher how to jump straight to start of events
+                if found == -1:
+                    assert count == 0 # meh
                     continue
-                logger.warning('misc event: %s %s', book, row)
-                # yield MiscEvent(dt=dt, book=book, payload=row)
+                blob = blob[found - 8:]
+
+            data_start = 47
+
+            dts = []
+            _, zz, _, cnt = struct.unpack('>8s30s5sI', blob[:data_start])
+            assert zz[1::2] == b'eventTimestamps'
+            # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
+
+            data_end = data_start + (5 + 4) * cnt
+            for ts,  in struct.iter_unpack('>5xI', blob[data_start: data_end]):
+                dts.append(pytz.utc.localize(datetime.utcfromtimestamp(ts)))
+            for x in dts:
+                if tp == ETT.BOOK_FINISHED:
+                    yield FinishedEvent(dt=x, book=book, eid=eid)
+                elif tp == ETT.PROGRESS_25:
+                    yield ProgressEvent(dt=x, book=book, prog=25, eid=eid)
+                elif tp == ETT.PROGRESS_50:
+                    yield ProgressEvent(dt=x, book=book, prog=50, eid=eid)
+                elif tp == ETT.PROGRESS_75:
+                    yield ProgressEvent(dt=x, book=book, prog=75, eid=eid)
+                else:
+                    yield MiscEvent(dt=x, book=book, payload='EVENT ' + str(tp))
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
