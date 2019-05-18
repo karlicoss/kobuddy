@@ -10,6 +10,7 @@ from os.path import basename
 from pathlib import Path
 from functools import lru_cache
 import pytz
+from kython import cproperty
 
 from kython import cproperty, group_by_key, the
 from kython.pdatetime import parse_mdatetime
@@ -69,7 +70,7 @@ class Event(Protocol):
 
     @property
     def summary(self) -> str:
-        return f'event in {self.book}'
+        return f'event in {self.book}' # TODO exclude book from summary? and use it on site instead (need to check in timeline)
 
     def __repr__(self) -> str:
         return f'{self.dt.strftime("%Y-%m-%d %H:%M:%S")}: {self.summary}'
@@ -108,7 +109,7 @@ class Highlight(Event):
 
     @property
     def summary(self) -> str:
-        return f"{self.kind} in {self.book}"
+        return f"{self.kind}"
 
     # this is what's actually hightlighted
     @property
@@ -149,46 +150,36 @@ class MiscEvent(OtherEvent):
     def summary(self) -> str:
         return str(self.payload)
 
-class BookFinished(MiscEvent):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs, payload='finished') # type: ignore
-
 class ProgressEvent(OtherEvent):
-    def __init__(self, *args, prog: str, **kwargs) -> None:
+    def __init__(self, *args, prog: Optional[int], seconds_read: Optional[int]=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.prog = prog
+        self.seconds_read = seconds_read
 
     @property
     def summary(self) -> str:
-        return f'progress on {self.book}: {self.prog}%'
+        progs = '' if self.prog is None else f': {self.prog}%'
+        read_for = '' if self.seconds_read is None else f', read for {self.seconds_read // 60} mins'
+        return 'progress' + progs + read_for
 
 class StartEvent(OtherEvent):
     @property
     def summary(self) -> str:
-        return f'started reading {self.book}'
+        return f'started'
 
 class FinishedEvent(OtherEvent):
-    def __init__(self, *args, time_spent_s: int, **kwargs) -> None:
+    def __init__(self, *args, time_spent_s: Optional[int]=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.time_spent_s = time_spent_s
 
-    @property
-    def time_spent(self) -> str:
-        return "undefined" if self.time_spent_s == -1 else str(self.time_spent_s // 60)
+    # @property
+    # def time_spent(self) -> str:
+    #     return "undefined" if self.time_spent_s == -1 else str(self.time_spent_s // 60)
 
     @property
     def summary(self) -> str:
-        return f'finished reading {self.book}. total time spent {self.time_spent} minutes'
-
-class LeaveEvent(OtherEvent):
-    def __init__(self, *args, prog: str, seconds: int, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.prog = prog
-        self.seconds = seconds
-
-    @property
-    def summary(self) -> str:
-        return f'left {self.book}: {self.prog}%, read for {self.seconds // 60} mins'
+        tss = '' if self.time_spent_s is None else f', total time spent {self.time_spent_s // 60} mins'
+        return 'finished' + tss
 
 class EventTypes:
     START = 'StartReadingBook'
@@ -320,6 +311,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         EventCount     = 'EventCount'
         LastOccurrence = 'LastOccurrence'
         ContentID      = 'ContentID'
+        Checksum       = 'Checksum'
         # TODO ExtraData got some interesting blobs..
 
         class Types:
@@ -360,11 +352,12 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             if extra.status == 2:
                 dt = extra.last_read
                 assert dt is not None
-                yield BookFinished(dt=dt, book=b)
+                yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=b.content_id)
 
         ET = EventTbl
-        for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID} from Event'): # TODO order by?
-            tp, count, last, cid = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID]
+        for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum} from Event'): # TODO order by?
+            tp, count, last, cid, checksum = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum]
+            eid = checksum
             if tp in (
                     ET.Types.T46,
                     ET.Types.T37,
@@ -383,18 +376,18 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 continue
 
             if tp == ET.Types.BOOK_FINISHED:
-                yield BookFinished(dt=dt, book=book)
+                yield FinishedEvent(dt=dt, book=book, eid=eid)
             elif tp == ET.Types.PROGRESS_25:
-                yield MiscEvent(dt=dt, book=book, payload='25%') # TODO group with analytic event crap (or ignore it altogether?)
+                yield ProgressEvent(dt=dt, book=book, prog=25, eid=eid) # TODO group with analytic event crap (or ignore it altogether?)
             elif tp == ET.Types.PROGRESS_50:
-                yield MiscEvent(dt=dt, book=book, payload='50%')
+                yield ProgressEvent(dt=dt, book=book, prog=50, eid=eid)
             elif tp == ET.Types.PROGRESS_75:
-                yield MiscEvent(dt=dt, book=book, payload='75%')
+                yield ProgressEvent(dt=dt, book=book, prog=75, eid=eid)
             else:
                 if count != 1:
                     continue
-
-                yield MiscEvent(dt=dt, book=book, payload=row)
+                logger.warning('misc event: %s %s', book, row)
+                # yield MiscEvent(dt=dt, book=book, payload=row)
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
@@ -405,22 +398,16 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             att = json.loads(att)
             met = json.loads(met)
             if tp == EventTypes.LEAVE_CONTENT:
-                # TODO mm. keep only the last in group?...
-                # descr = f"{att.get('title', '')} by {att.get('author', '')}"
-                # TODO volumeid
-
                 book = books.by_dict(att)
-
-                prog = att.get('progress', '0')
-                # TODO progress is not always present??
-                secs = int(met.get('SecondsRead', 0)) # TODO not sure..
-                # TODO pages turned?
-                ev = LeaveEvent(
+                prog = att.get('progress', None) # sometimes it doesn't actually have it (e.g. in Oceanic)
+                secs = int(met['SecondsRead'])
+                # TODO pages turned in met
+                ev = ProgressEvent(
                     dt=ts,
                     book=book,
-                    eid=eid,
                     prog=prog,
-                    seconds=secs,
+                    seconds_read=secs,
+                    eid=eid,
                 )
                 if secs >= 60:
                     yield ev
@@ -444,13 +431,11 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 )
             elif tp == EventTypes.FINISHED:
                 book = books.by_dict(att)
-                # TODO maybe need to emit time_spent separately?..
+                # TODO IsMarkAsFinished?
                 yield FinishedEvent(
                     dt=ts,
                     book=book,
                     eid=eid,
-                    time_spent_s=-1, # TODO FIXME
-                    # time_spent_s=book.time_spent,
                 )
             elif tp in (
                     'AdobeErrorEncountered',
@@ -553,7 +538,7 @@ def iter_events(**kwargs) -> Iterator[Event]:
 
     seen: Set[Tuple] = set()
     for x in _iter_events_aux(**kwargs):
-        kk = (x.dt, x.book, x.eid, x.summary)
+        kk = (x.dt, x.book, x.summary)
         if kk not in seen:
             seen.add(kk)
             yield x
@@ -561,9 +546,7 @@ def iter_events(**kwargs) -> Iterator[Event]:
 def get_events(**kwargs) -> List[Event]:
     def kkey(e):
         cls_order = 0
-        if isinstance(e, LeaveEvent):
-            cls_order = 1
-        elif isinstance(e, ProgressEvent):
+        if isinstance(e, ProgressEvent):
             cls_order = 2
         elif isinstance(e, FinishedEvent):
             cls_order = 3
@@ -650,13 +633,38 @@ def test_pages():
 # TODO need to merge 'progress' and 'left'
 from kython import group_by_key
 
-def print_history(limit):
+class BookEvents:
+    def __init__(self, book: Book, events):
+        assert all(e.book == book for e in events)
+        self.book = book
+        self.events = list(sorted(events, key=lambda e: e.dt))
+        # TOOD sort?
+
+    @property
+    def finished(self) -> Optional[datetime]:
+        for e in self.events:
+            if isinstance(e, FinishedEvent):
+                return e.dt
+        return None
+
+    @property
+    def last(self) -> datetime:
+        return self.events[-1].dt
+
+def iter_book_events(limit):
     evts = iter_events(limit=limit)
     # TODO sort by finised date
     for book, events in group_by_key(evts, key=lambda e: e.book).items():
+        yield BookEvents(book, events)
+
+def get_book_events(limit):
+    return list(sorted(iter_book_events(limit), key=lambda be: be.last))
+
+def print_history(limit):
+    for bevents in get_book_events(limit):
         print()
-        print(book)
-        for e in sorted(events, key=lambda e: e.dt): # TODO not sure when should be sorted
+        print(bevents.book, bevents.finished)
+        for e in bevents.events:
             # TODO shit. offset
             print("-- " + str(e))
 
