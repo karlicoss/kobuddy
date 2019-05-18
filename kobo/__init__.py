@@ -140,10 +140,10 @@ class OtherEvent(Event):
         self._eid = eid
 
 class MiscEvent(OtherEvent):
-    def __init__(self, dt: datetime, book: Book, payload):
+    def __init__(self, dt: datetime, book: Book, payload, eid: str):
         self._dt = dt
         self._book = book
-        self._eid = "TODO FIXME" # TODO need to fix that, otherwise timeline is unhappy
+        self._eid = eid
         self.payload = payload
 
     @property
@@ -157,10 +157,14 @@ class ProgressEvent(OtherEvent):
         self.seconds_read = seconds_read
 
     @property
-    def summary(self) -> str:
+    def verbose(self) -> str:
         progs = '' if self.prog is None else f': {self.prog}%'
         read_for = '' if self.seconds_read is None else f', read for {self.seconds_read // 60} mins'
-        return 'reading' + progs + read_for
+        return progs + read_for
+
+    @property
+    def summary(self) -> str:
+        return 'reading' + self.verbose
 
     # TODO FIXME use progress event instead? 
 class StartEvent(OtherEvent):
@@ -265,7 +269,7 @@ class Extra(NamedTuple):
     last_read: Optional[datetime]
 
 
-def get_books(db) -> List[Tuple[Book, Optional[Extra]]]:
+def load_books(db) -> List[Tuple[Book, Extra]]:
     logger = get_logger()
     content_table = db.load_table('content')
     # wtf... that fails with some sqlalchemy crap
@@ -369,20 +373,19 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         logger.info('processing %s', fname)
         db = dataset.connect(f'sqlite:///{fname}', reflect_views=False, ensure_schema=False) # TODO ??? 
 
-        for b, extra in get_books(db):
+        for b, extra in load_books(db):
             books.add(b)
             if extra is None:
                 continue
             dt = extra.last_read
             if extra.status == 2:
                 assert dt is not None
-                yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=b.content_id)
+                yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=f'{b.content_id}-{fname.name}')
 
         ET = EventTbl
         ETT = ET.Types
         for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'): # TODO order by?
             tp, count, last, cid, checksum, extra_data = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum], row[f'hex({ET.ExtraData})']
-            eid = checksum
             if tp in (
                     ETT.T37,
                     ETT.T7,
@@ -429,7 +432,9 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             data_end = data_start + (5 + 4) * cnt
             for ts,  in struct.iter_unpack('>5xI', blob[data_start: data_end]):
                 dts.append(pytz.utc.localize(datetime.utcfromtimestamp(ts)))
-            for x in dts:
+            for i, x in enumerate(dts):
+                eid = checksum + "_" + str(i)
+
                 if tp == ETT.T3:
                     yield ProgressEvent(dt=x, book=book, eid=eid)
                 elif tp == ETT.BOOK_FINISHED:
@@ -441,7 +446,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 elif tp == ETT.PROGRESS_75:
                     yield ProgressEvent(dt=x, book=book, prog=75, eid=eid)
                 else:
-                    yield MiscEvent(dt=x, book=book, payload='EVENT ' + str(tp))
+                    yield MiscEvent(dt=x, book=book, payload='EVENT ' + str(tp), eid=eid)
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
@@ -546,7 +551,7 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
 
     books = Books()
     db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
-    for b, _ in get_books(db):
+    for b, _ in load_books(db):
         books.add(b)
 
 
@@ -587,6 +592,8 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
 
 # TODO mm, could also integrate it with goodreads api?...
 # TODO which order is that??
+
+# TODO not sure if need to be exposed
 def iter_events(**kwargs) -> Iterator[Event]:
     yield from _iter_highlights(**kwargs)
 
@@ -597,6 +604,7 @@ def iter_events(**kwargs) -> Iterator[Event]:
             seen.add(kk)
             yield x
 
+# TODO is this even used apart from tests??
 def get_events(**kwargs) -> List[Event]:
     def kkey(e):
         cls_order = 0
@@ -658,6 +666,7 @@ class Page(NamedTuple):
         return max(h.dt for h in self.highlights)
 
 
+# TODO need to reuse fully assembled highlights, from all backups
 def get_pages(**kwargs) -> List[Page]:
     highlights = get_highlights(**kwargs)
     grouped = group_by_key(highlights, key=lambda e: e.book)
@@ -721,13 +730,17 @@ class BookEvents:
     def last(self) -> datetime:
         return self.events[-1].dt
 
-def iter_book_events(**kwargs):
+def iter_books(**kwargs):
     evts = iter_events(**kwargs)
     for book, events in group_by_key(evts, key=lambda e: e.book).items():
         yield BookEvents(book, events)
 
-def get_book_events(**kwargs):
-    return list(sorted(iter_book_events(**kwargs), key=lambda be: be.last))
+def get_books(**kwargs):
+    return list(sorted(iter_books(**kwargs), key=lambda be: be.last))
+
+def iter_book_events(**kwargs):
+    for b in get_books(**kwargs):
+        yield from b.events
 
 def print_history(**kwargs):
     for bevents in get_book_events(**kwargs):
