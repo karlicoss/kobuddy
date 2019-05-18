@@ -326,6 +326,13 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # could be book purchases? although for one book, occurst 4 times so doesn't make sense..
             T7 = 7
 
+            # not sure what are these, doen't have contentid and accumulates throughout history
+            T0 = 0
+            T1 = 1
+            T6 = 6
+            T8 = 8
+            T79 = 79
+
             # looks like dictionary lookups (judging to DictionaryName in blob)
             T9 = 9
 
@@ -383,6 +390,8 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                     ETT.T1020,
                     ETT.T80,
                     ETT.T46,
+
+                    ETT.T0, ETT.T1, ETT.T6, ETT.T8, ETT.T79,
 
                     ETT.T1021,
             ):
