@@ -312,6 +312,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         LastOccurrence = 'LastOccurrence'
         ContentID      = 'ContentID'
         Checksum       = 'Checksum'
+        ExtraData = 'ExtraData'
         # TODO ExtraData got some interesting blobs..
 
         class Types:
@@ -331,6 +332,9 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # TODO hmm. not sure if progress evennts are true for books which are actually still in progress though..
             PROGRESS_50 = 1013
             PROGRESS_75 = 1014
+
+            T9 = 9
+            # TODO 9 might be 'started' reading?
 
     # TODO handle all_ here?
     logger = get_logger()
@@ -355,8 +359,8 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=b.content_id)
 
         ET = EventTbl
-        for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum} from Event'): # TODO order by?
-            tp, count, last, cid, checksum = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum]
+        for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'): # TODO order by?
+            tp, count, last, cid, checksum, extra_data = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum], row[f'hex({ET.ExtraData})']
             eid = checksum
             if tp in (
                     ET.Types.T46,
@@ -365,15 +369,34 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             ):
                 continue
 
-            dt = _parse_utcdt(last)
-            assert dt is not None
-
             # TODO should assert this in 'full' mode when we rebuild from the very start...
             # assert book is not None
             book = books.by_content_id(cid)
             if book is None:
                 warnings.warn(f'book not found: {row}')
                 continue
+
+            # TODO def needs tests..
+            import struct
+            if tp == 3:
+                blob = bytearray.fromhex(extra_data)
+                dts = []
+                _, zz, _, cnt = struct.unpack('>8s30s5sI', blob[:47])
+                assert zz[1::2] == b'eventTimestamps'
+                # assert cnt == count
+                # TODO ok, it happens.. warn about event count mismatch??
+
+                pos = 52
+                for _ in range(cnt):
+                    ts, = struct.unpack('>I', blob[pos:pos+4])
+                    pos += 9
+                    dts.append(datetime.utcfromtimestamp(ts))
+                for x in dts:
+                    yield MiscEvent(dt=pytz.utc.localize(x), book=book, payload='EVENT 3')
+
+            dt = _parse_utcdt(last)
+            assert dt is not None
+
 
             if tp == ET.Types.BOOK_FINISHED:
                 yield FinishedEvent(dt=dt, book=book, eid=eid)
@@ -383,6 +406,8 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 yield ProgressEvent(dt=dt, book=book, prog=50, eid=eid)
             elif tp == ET.Types.PROGRESS_75:
                 yield ProgressEvent(dt=dt, book=book, prog=75, eid=eid)
+            elif tp == ET.Types.T9:
+                yield MiscEvent(dt=dt, book=book, payload='STARTED???')
             else:
                 if count != 1:
                     continue
@@ -651,21 +676,19 @@ class BookEvents:
     def last(self) -> datetime:
         return self.events[-1].dt
 
-def iter_book_events(limit):
-    evts = iter_events(limit=limit)
-    # TODO sort by finised date
+def iter_book_events(**kwargs):
+    evts = iter_events(**kwargs)
     for book, events in group_by_key(evts, key=lambda e: e.book).items():
         yield BookEvents(book, events)
 
-def get_book_events(limit):
-    return list(sorted(iter_book_events(limit), key=lambda be: be.last))
+def get_book_events(**kwargs):
+    return list(sorted(iter_book_events(**kwargs), key=lambda be: be.last))
 
-def print_history(limit):
-    for bevents in get_book_events(limit):
+def print_history(**kwargs):
+    for bevents in get_book_events(**kwargs):
         print()
         print(bevents.book, bevents.finished)
         for e in bevents.events:
-            # TODO shit. offset
             print("-- " + str(e))
 
 
@@ -680,7 +703,7 @@ def main():
     p.add_argument('mode', nargs='?')
     args = p.parse_args()
     if args.mode == 'history':
-        print_history(args.limit)
+        print_history(limit=args.limit)
     else:
         assert args.mode is None
         raise NotImplementedError
