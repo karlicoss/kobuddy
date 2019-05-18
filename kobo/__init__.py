@@ -151,7 +151,7 @@ class MiscEvent(OtherEvent):
         return str(self.payload)
 
 class ProgressEvent(OtherEvent):
-    def __init__(self, *args, prog: Optional[int], seconds_read: Optional[int]=None, **kwargs) -> None:
+    def __init__(self, *args, prog: Optional[int]=None, seconds_read: Optional[int]=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.prog = prog
         self.seconds_read = seconds_read
@@ -160,8 +160,9 @@ class ProgressEvent(OtherEvent):
     def summary(self) -> str:
         progs = '' if self.prog is None else f': {self.prog}%'
         read_for = '' if self.seconds_read is None else f', read for {self.seconds_read // 60} mins'
-        return 'progress' + progs + read_for
+        return 'reading' + progs + read_for
 
+    # TODO FIXME use progress event instead? 
 class StartEvent(OtherEvent):
     @property
     def summary(self) -> str:
@@ -420,7 +421,9 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             for ts,  in struct.iter_unpack('>5xI', blob[data_start: data_end]):
                 dts.append(pytz.utc.localize(datetime.utcfromtimestamp(ts)))
             for x in dts:
-                if tp == ETT.BOOK_FINISHED:
+                if tp == ETT.T3:
+                    yield ProgressEvent(dt=x, book=book, eid=eid)
+                elif tp == ETT.BOOK_FINISHED:
                     yield FinishedEvent(dt=x, book=book, eid=eid)
                 elif tp == ETT.PROGRESS_25:
                     yield ProgressEvent(dt=x, book=book, prog=25, eid=eid)
@@ -590,6 +593,7 @@ def get_events(**kwargs) -> List[Event]:
         cls_order = 0
         if isinstance(e, ProgressEvent):
             cls_order = 2
+            # TODO might need to get rid of it..
         elif isinstance(e, FinishedEvent):
             cls_order = 3
 
@@ -675,15 +679,30 @@ def test_pages():
 # TODO need to merge 'progress' and 'left'
 from kython import group_by_key
 
+def _event_key(evt):
+    tie_breaker = 0
+    if isinstance(evt, ProgressEvent):
+        tie_breaker = 1
+    elif isinstance(evt, FinishedEvent):
+        tie_breaker = 2
+    return (evt.dt, tie_breaker)
+
 class BookEvents:
     def __init__(self, book: Book, events):
         assert all(e.book == book for e in events)
         self.book = book
-        self.events = list(sorted(events, key=lambda e: e.dt))
-        # TOOD sort?
+        self.events = list(sorted(events, key=_event_key))
+
+    @property
+    def started(self) -> Optional[datetime]:
+        for e in self.events:
+            if isinstance(e, ProgressEvent):
+                return e.dt
+        return None
 
     @property
     def finished(self) -> Optional[datetime]:
+        # TODO go from end?
         for e in self.events:
             if isinstance(e, FinishedEvent):
                 return e.dt
@@ -704,7 +723,7 @@ def get_book_events(**kwargs):
 def print_history(**kwargs):
     for bevents in get_book_events(**kwargs):
         print()
-        print(bevents.book, bevents.finished)
+        print(bevents.book, bevents.started, bevents.finished)
         for e in bevents.events:
             print("-- " + str(e))
 
