@@ -14,6 +14,8 @@ import pytz
 from kython import cproperty, group_by_key, the
 from kython.pdatetime import parse_mdatetime
 
+import warnings
+
 import imp
 export_kobo = imp.load_source('ekobo', '/L/zzz_syncthing/repos/export-kobo/export-kobo.py') # type: ignore
 
@@ -140,7 +142,7 @@ class MiscEvent(OtherEvent):
     def __init__(self, dt: datetime, book: Book, payload):
         self._dt = dt
         self._book = book
-        self._eid = "TODO FIXME"
+        self._eid = "TODO FIXME" # TODO need to fix that, otherwise timeline is unhappy
         self.payload = payload
 
     @property
@@ -334,6 +336,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             T46 = 46
 
             PROGRESS_25 = 1012
+            # TODO hmm. not sure if progress evennts are true for books which are actually still in progress though..
             PROGRESS_50 = 1013
             PROGRESS_75 = 1014
 
@@ -376,7 +379,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # assert book is not None
             book = books.by_content_id(cid)
             if book is None:
-                logger.warning('book not found: %s', row)
+                warnings.warn(f'book not found: {row}')
                 continue
 
             if tp == ET.Types.BOOK_FINISHED:
@@ -645,25 +648,48 @@ def test_pages():
         print(p)
 
 # TODO need to merge 'progress' and 'left'
+from kython import group_by_key
+
+def print_history(limit):
+    evts = iter_events(limit=limit)
+    # TODO sort by finised date
+    for book, events in group_by_key(evts, key=lambda e: e.book).items():
+        print()
+        print(book)
+        for e in sorted(events, key=lambda e: e.dt): # TODO not sure when should be sorted
+            # TODO shit. offset
+            print("-- " + str(e))
+
 
 def main():
     from kython.klogging import setup_logzero
     logger = get_logger()
     setup_logzero(logger, level=logging.DEBUG)
 
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument('--limit', type=int)
+    p.add_argument('mode', nargs='?')
+    args = p.parse_args()
+    if args.mode == 'history':
+        print_history(args.limit)
+    else:
+        assert args.mode is None
+        raise NotImplementedError
+
+
     # TODO also events shouldn't be cumulative?
-    evts = iter_events(limit=5)
+    # evts = iter_events() # limit=5)
     # evts = filter(lambda x: not isinstance(x, Highlight), evts)
 
-    from kython import group_by_key
-    for book, events in group_by_key(evts, key=lambda e: e.book).items():
-        # if book.content_id != 'b09b236c-9a6e-44b7-9727-8187d98d8419':
-        #     continue
-        print()
-        print(type(book), book, book.content_id)
-        for e in sorted(events, key=lambda e: e.dt): # TODO not sure when should be sorted
-            # TODO shit. offset
-            print("-- " + str(e))
+    # for book, events in group_by_key(evts, key=lambda e: e.book).items():
+    #     # if book.content_id != 'b09b236c-9a6e-44b7-9727-8187d98d8419':
+    #     #     continue
+    #     print()
+    #     print(type(book), book, book.content_id)
+    #     for e in sorted(events, key=lambda e: e.dt): # TODO not sure when should be sorted
+    #         # TODO shit. offset
+    #         print("-- " + str(e))
     # test_pages()
     # test_get_all()
 
