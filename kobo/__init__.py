@@ -275,7 +275,7 @@ def load_books(db) -> List[Tuple[Book, Extra]]:
     # wtf... that fails with some sqlalchemy crap
     # books = content_table.find(ContentType=6)
     # shit, no book id weirdly...
-    items: List[Tuple[Book, Optional[Extra]]] = []
+    items: List[Tuple[Book, Extra]] = []
     # for book in MANUAL_BOOKS:
     #     items.append((book, None))
 
@@ -743,7 +743,7 @@ def iter_book_events(**kwargs):
         yield from b.events
 
 def print_history(**kwargs):
-    for bevents in get_book_events(**kwargs):
+    for bevents in get_books(**kwargs):
         print()
         print(bevents.book, bevents.started, bevents.finished)
         for e in bevents.events:
