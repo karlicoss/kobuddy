@@ -10,7 +10,7 @@ from kobo_device import get_kobo_mountpoint # type: ignore
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--label', help="device label (check lsblk if default doesn't work)")
+    p.add_argument('--label', default='KOBOeReader', help="device label (check lsblk if default doesn't work)")
     p.add_argument('path', type=Path, help='directory or file to dump the database')
     args = p.parse_args()
 

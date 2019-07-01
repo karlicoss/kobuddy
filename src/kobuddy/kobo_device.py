@@ -7,7 +7,7 @@ from typing import Optional
 def get_kobo_mountpoint(label: str='KOBOeReader') -> Optional[Path]:
     xxx = check_output(['lsblk', '-f', '--json']).decode('utf8')
     jj = json.loads(xxx)
-    kobos = [d for d in jj['blockdevices'] if label in d and d['label'] == label]
+    kobos = [d for d in jj['blockdevices'] if d.get('label', None) == label]
     if len(kobos) > 1:
         raise RuntimeError(f'Multiple Kobo devices detected: {kobos}')
     elif len(kobos) == 0:
