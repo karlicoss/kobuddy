@@ -10,7 +10,12 @@ jobs:
       # TODO preserve apt cache..
       - run: sudo apt install python3-pip
       - run: python3 -m pip install --user tox
-      - run: python3 -m tox
+
+      - run: python3 -m pip install --user pytest
+      - run: python3 -m pip install --user -e .
+      - run: PYTHONPATH=src python3 -m pytest -s tests/test_kobo.py
+      # TODO fix tox...
+      # - run: python3 -m tox
 
 workflows:
   version: 2

@@ -29,8 +29,11 @@ from kython.pdatetime import parse_mdatetime
 
 import warnings
 
+# import pdb; pdb.set_trace()
+# print(list()Path(__file__).absolute().parent.iterdir(), kwargs))
 import imp
-export_kobo = imp.load_source('ekobo', '/L/zzz_syncthing/repos/export-kobo/export-kobo.py') # type: ignore
+export_kobo_file = Path(__file__).absolute().parent / 'export_kobo' / 'export-kobo.py'
+export_kobo = imp.load_source('export_kobo', str(export_kobo_file)) # type: ignore
 
 import dataset # type: ignore
 
