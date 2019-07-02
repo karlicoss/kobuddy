@@ -164,7 +164,7 @@ venv.bak/
 [Ll]ib
 [Ll]ib64
 [Ll]ocal
-[Ss]cripts
+# [Ss]cripts # err. that seems wrong..
 pyvenv.cfg
 pip-selfcheck.json
 
