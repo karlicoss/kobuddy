@@ -6,6 +6,7 @@ jobs:
       - image: circleci/python:latest
     steps:
       - checkout
+      - run: git submodule update --init
 
       # TODO preserve apt cache..
       - run: sudo apt install python3-pip
