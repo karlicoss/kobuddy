@@ -372,6 +372,9 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # 1021 seems to coincide with 'progress'
             T1021 = 1021
 
+            # ??? in test database
+            T99999 = 99999
+
     # TODO handle all_ here?
     logger = get_logger()
     dbs = _get_all_dbs()
@@ -409,6 +412,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                     ETT.T0, ETT.T1, ETT.T6, ETT.T8, ETT.T79,
 
                     ETT.T1021,
+                    ETT.T99999,
             ):
                 continue
 
