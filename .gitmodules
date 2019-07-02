@@ -1,0 +1,3 @@
+[submodule "tests/data/kobo_notes"]
+	path = tests/data/kobo_notes
+	url = https://github.com/CharlyMartin/kobo_notes
