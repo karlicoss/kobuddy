@@ -378,6 +378,10 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # ??? in test database
             T99999 = 99999
 
+            # ??? appeared on 20190701
+            T4 = 4
+            T68 = 68
+
     # TODO handle all_ here?
     logger = get_logger()
     dbs = _get_all_dbs()
@@ -416,6 +420,8 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
 
                     ETT.T1021,
                     ETT.T99999,
+                    ETT.T4,
+                    ETT.T68,
             ):
                 continue
 
@@ -430,7 +436,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # TODO def needs tests.. need to run ignored through tests as well
             if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
                 logger.error('unexpected event: %s %s', book, row)
-                raise RuntimeError(str(row))
+                raise RuntimeError(str(row)) # TODO return kython.Err
 
             blob = bytearray.fromhex(extra_data)
             if tp == ETT.T46:
