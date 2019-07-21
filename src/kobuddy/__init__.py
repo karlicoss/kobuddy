@@ -692,6 +692,7 @@ class Page(NamedTuple):
 
 
 # TODO need to reuse fully assembled highlights, from all backups
+# TODO give better names?
 def get_pages(**kwargs) -> List[Page]:
     highlights = get_highlights(**kwargs)
     grouped = group_by_key(highlights, key=lambda e: e.book)
@@ -702,22 +703,6 @@ def get_pages(**kwargs) -> List[Page]:
     pages = list(sorted(pages, key=lambda p: p.dt))
     return pages
 
-
-def test_todos():
-    todos = get_todos()
-    assert len(todos) > 3
-
-def test_get_all():
-    events = get_events()
-    assert len(events) > 50
-    for d in events:
-        print(d)
-
-def test_pages():
-    pages = get_pages()
-    assert len(pages) > 10
-    for p in pages:
-        print(p)
 
 # TODO need to merge 'progress' and 'left'
 from kython import group_by_key
