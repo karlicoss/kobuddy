@@ -29,8 +29,6 @@ from kython.pdatetime import parse_mdatetime
 
 import warnings
 
-# import pdb; pdb.set_trace()
-# print(list()Path(__file__).absolute().parent.iterdir(), kwargs))
 import imp
 export_kobo_file = Path(__file__).absolute().parent / 'export_kobo' / 'export-kobo.py'
 export_kobo = imp.load_source('export_kobo', str(export_kobo_file)) # type: ignore
@@ -429,6 +427,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # assert book is not None
             book = books.by_content_id(cid)
             if book is None:
+                # TODO not sure about warnings..  maybe add to books class?
                 warnings.warn(f'book not found: {row}')
                 continue
 
@@ -575,6 +574,7 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     bfile = _get_last_backup() # TODO FIXME really last? or we want to get all??
 
     books = Books()
+    # TODO FIXME books should be merged from all available sources
     db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
     for b, _ in load_books(db):
         books.add(b)
@@ -671,6 +671,7 @@ def by_annotation(predicatish: Predicatish, **kwargs) -> List[Highlight]:
             res.append(h)
     return res
 
+# TODO move to private provider..
 def get_todos():
     def with_todo(ann):
         if ann is None:
