@@ -18,7 +18,7 @@ import logging
 import shutil
 import struct
 import warnings
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -30,7 +30,7 @@ import dataset # type: ignore
 import pytz
 from typing_extensions import Protocol
 
-from kobuddy.common import get_logger, unwrap, cproperty, group_by_key, the
+from kobuddy.common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext
 from kobuddy.kobo_device import get_kobo_mountpoint
 
 

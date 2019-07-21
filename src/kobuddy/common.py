@@ -39,3 +39,11 @@ def group_by_key(l: Iterable[T], key: Callable[[T], K]) -> Dict[K, List[T]]:
         lst.append(i)
         res[kk] = lst
     return res
+
+
+
+from contextlib import contextmanager
+# unavailable in python < 3.7
+@contextmanager
+def nullcontext(enter_result=None):
+    yield enter_result
