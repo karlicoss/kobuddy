@@ -24,20 +24,18 @@ from functools import lru_cache
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryFile
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
-    Tuple, Union)
+                    Tuple, Union, Callable)
 
-import dataset
+import dataset # type: ignore
 import pytz
 from kython import cproperty, group_by_key, the
-from kython.kerror import unwrap
 from kython.pdatetime import parse_mdatetime
 from typing_extensions import Protocol
 
+from kobuddy.common import get_logger, unwrap
 from kobuddy.kobo_device import get_kobo_mountpoint
 
 
-def get_logger():
-    return logging.getLogger('kobo-provider')
 
 
 # a bit nasty to have a global variable here... will rewrite later
@@ -134,7 +132,7 @@ class Highlight(Event):
     # modified is either same as created or 0 timestamp? anyway, not very interesting
     @property
     def dt(self) -> datetime:
-        # I checked and it's definitely UTC
+        # I checked and it's definitely utc
         return unwrap(_parse_utcdt(self.row['DateCreated']))
 
     # @property
@@ -157,12 +155,12 @@ class Highlight(Event):
         return self.row['Text']
 
     @property
-    def annotation(self) -> Optional[str]:
+    def annotation(self) -> str:
         """
         Your comment
         """
-        # TODO not sure if should distinguish between None and empty string..
-        return self.row['Annotation']
+        # sometimes annotation is None, but doesn't seem to be much point to tell the difference with empty annotation
+        return self.row['Annotation'] or ''
 
     @property
     def eid(self) -> str:
@@ -174,7 +172,7 @@ class Highlight(Event):
         if text is None:
             return 'bookmark'
         else:
-            ann = self.annotation or ''
+            ann = self.annotation
             if len(ann) > 0:
                 return 'annotation'
             else:
@@ -661,12 +659,11 @@ def get_events(**kwargs) -> List[Event]:
 
         k = e.dt
         if k.tzinfo is None:
-            k = k.replace(tzinfo=pytz.UTC)
+            k = k.replace(tzinfo=pytz.utc)
         return (k, cls_order)
     return list(sorted(iter_events(**kwargs), key=kkey))
 
 
-from typing import Callable, Union
 # TODO maybe type over T?
 _Predicate = Callable[[str], bool]
 Predicatish = Union[str, _Predicate]
@@ -753,17 +750,21 @@ class BookEvents:
     def last(self) -> datetime:
         return self.events[-1].dt
 
+
 def iter_books(**kwargs):
     evts = iter_events(**kwargs)
     for book, events in group_by_key(evts, key=lambda e: e.book).items():
         yield BookEvents(book, events)
 
+
 def get_books(**kwargs):
     return list(sorted(iter_books(**kwargs), key=lambda be: be.last))
+
 
 def iter_book_events(**kwargs):
     for b in get_books(**kwargs):
         yield from b.events
+
 
 def print_history(**kwargs):
     def fmt_dt(dt: datetime) -> str:

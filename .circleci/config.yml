@@ -15,6 +15,9 @@ jobs:
       - run: python3 -m pip install --user pytest
       - run: python3 -m pip install --user -e .
       - run: PYTHONPATH=src python3 -m pytest -s tests/test_kobo.py
+
+      - run: python3 -m mypy   src/kobuddy
+      - run: python3 -m pylint src/kobuddy
       # TODO fix tox...
       # - run: python3 -m tox
 
