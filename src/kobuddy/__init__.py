@@ -18,20 +18,15 @@ import os
 from typing import List, NamedTuple, Iterator, Optional, Set, Tuple, Dict, Sequence
 from typing_extensions import Protocol
 import json
-from os.path import basename
 from pathlib import Path
 from functools import lru_cache
 import struct
 import pytz
-
-from kython import cproperty, group_by_key, the
-from kython.pdatetime import parse_mdatetime
-
 import warnings
 
-import imp
-export_kobo_file = Path(__file__).absolute().parent / 'export_kobo' / 'export-kobo.py'
-export_kobo = imp.load_source('export_kobo', str(export_kobo_file)) # type: ignore
+from kython import cproperty, group_by_key, the
+from kython.kerror import unwrap
+from kython.pdatetime import parse_mdatetime
 
 import dataset # type: ignore
 
@@ -102,17 +97,16 @@ def _parse_utcdt(s) -> Optional[datetime]:
 
 class Highlight(Event):
 
-    def __init__(self, w, book: Book):
-        self.w = w
+    # TODO pass books objec?
+    def __init__(self, row: Dict[str, str], book: Book):
+        self.row = row
         self._book = book
 
-    # modified is either same as created or 0 timestamp. anyway, not very interesting
+    # modified is either same as created or 0 timestamp? anyway, not very interesting
     @property
     def dt(self) -> datetime:
         # I checked and it's definitely UTC
-        res = _parse_utcdt(self.w.datecreated)
-        assert res is not None
-        return res
+        return unwrap(_parse_utcdt(self.row['DateCreated']))
 
     # @property
     # def book(self) -> Book: # TODO FIXME should handle it carefully in kobo provider users
@@ -120,31 +114,47 @@ class Highlight(Event):
         # raise RuntimeError
         # return f'{self.title}' # TODO  by {self.author}'
 
+    # TODO ?? include text?
     @property
     def summary(self) -> str:
         return f"{self.kind}"
 
     # this is what's actually hightlighted
     @property
-    def text(self) -> str:
-        return self.w.text
+    def text(self) -> Optional[str]:
+        """
+        Highlighted text in the book
+        """
+        return self.row['Text']
 
-    # TODO optional??
     @property
-    def annotation(self):
-        return self.w.annotation
+    def annotation(self) -> str:
+        """
+        Your comment
+        """
+        # always non-null judging by db
+        return unwrap(self.row['Annotation'])
 
     @property
     def eid(self) -> str:
-        return self.w.bookmark_id # TODO use instead of iid?? make sure krill can handle it
+        return unwrap(self.row['BookmarkID'])
 
     @property
     def kind(self) -> str:
-        return self.w.kind
+        text = self.text
+        if text is None:
+            return 'bookmark'
+        else:
+            ann = self.annotation
+            if len(ann) > 0:
+                return 'annotation'
+            else:
+                return 'highlight'
 
-    @property
-    def title(self) -> str:
-        return self.w.title
+            # TODO why title??
+    # @property
+    # def title(self) -> str:
+    #     return self.w.title
 
 class OtherEvent(Event):
     def __init__(self, dt: datetime, book: Book, eid: str):
@@ -575,43 +585,24 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
 
     books = Books()
     # TODO FIXME books should be merged from all available sources
+
+    # TODO dispose?
     db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
     for b, _ in load_books(db):
         books.add(b)
 
 
-
     # TODO SHIT! definitely, e.g. if you delete book from device, hightlights/bookmarks just go. can check on mathematician's apology from 20180902
 
-    logger.info(f"Using {bfile} for highlights")
+    logger.info(f"Using %s for highlights", bfile)
 
-    ex = export_kobo.ExportKobo() # type: ignore
-    ex.vargs = {
-        'db': str(bfile),
-        'bookid': None,
-        'book': None,
-        'highlights_only': False,
-        'annotations_only': False,
-    }
-    for i in ex.read_items():
-        book = books.by_content_id(i.volumeid)
-        assert book is not None
-        yield Highlight(i, book=book)
-    # TODO eh. item is barely useful, it's just putting sqlite row into an object. just use raw query?
-# nn.extraannotationdata
-# nn.kind
-# nn.kindle_my_clippings
-# nn.title
-# nn.text
-# nn.annotation
-
-# TODO ugh. better name?
-
-# TODO maybe, just query from all annotations?
-# basically, I want
-# query stuff with certain annotations ('krill')
-# query stuff with certain text properties? (one line only)
-# comparator to merge them (iid is fine??)
+    # TODO returns result?
+    for bm in db.query('SELECT * FROM Bookmark'):
+        volumeid = bm['VolumeID']
+        book = books.by_content_id(volumeid)
+        assert book is not None # TODO defensive?
+        # TODO rename from Highlight?
+        yield Highlight(bm, book=book)
 
 # TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
 

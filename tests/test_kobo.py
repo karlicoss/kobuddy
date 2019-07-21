@@ -11,12 +11,17 @@ def get_test_dbs():
     return [db]
 kobuddy._get_all_dbs = get_test_dbs
 
-from kobuddy import _iter_events_aux, get_todos, get_events, get_pages
+from kobuddy import _iter_events_aux, get_todos, get_events, get_pages, _iter_highlights
 
 
 def test_events():
     for e in _iter_events_aux():
         print(e)
+
+
+def test_hls():
+    for h in _iter_highlights():
+        print(h)
 
 
 def test_todos():
