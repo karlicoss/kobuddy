@@ -28,11 +28,9 @@ from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
 
 import dataset # type: ignore
 import pytz
-from kython import cproperty, group_by_key, the
-from kython.pdatetime import parse_mdatetime
 from typing_extensions import Protocol
 
-from kobuddy.common import get_logger, unwrap
+from kobuddy.common import get_logger, unwrap, cproperty, group_by_key, the
 from kobuddy.kobo_device import get_kobo_mountpoint
 
 
@@ -110,16 +108,27 @@ class Event(Protocol):
     def __repr__(self) -> str:
         return f'{self.dt.strftime("%Y-%m-%d %H:%M:%S")}: {self.summary}'
 
-def _parse_utcdt(s) -> Optional[datetime]:
+def _parse_utcdt(s: Optional[str]) -> Optional[datetime]:
     if s is None:
         return None
-    res = parse_mdatetime(s)
-    if res is None:
-        return None
-    else:
-        if res.tzinfo is None:
-            res = pytz.utc.localize(res)
-        return res
+
+    res = None
+    if s.endswith('Z'):
+        s = s[:-1] # python can't handle it...
+    for fmt in (
+            '%Y-%m-%dT%H:%M:%S',
+            '%Y-%m-%dT%H:%M:%S.%f',
+    ):
+        try:
+            res = datetime.strptime(s, fmt)
+            break
+        except ValueError:
+            continue
+    assert res is not None
+
+    if res.tzinfo is None:
+        res = pytz.utc.localize(res)
+    return res
 
 
 class Highlight(Event):
@@ -253,8 +262,6 @@ class AnalyticsEvents:
     Timestamp = 'Timestamp'
     Type = 'Type'
 
-
-from kython import make_dict, group_by_key
 
 class Books:
     def __init__(self) -> None:
@@ -472,7 +479,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             # TODO def needs tests.. need to run ignored through tests as well
             if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
                 logger.error('unexpected event: %s %s', book, row)
-                raise RuntimeError(str(row)) # TODO return kython.Err
+                raise RuntimeError(str(row)) # TODO return kython.Err?
 
             blob = bytearray.fromhex(extra_data)
             if tp == ETT.T46:
@@ -514,7 +521,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         # TODO ugh. used to be events_table.all(), but started getting some 'Mandatory' field with a wrong schema at some point...
         for row in db.query(f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'): # TODO order by??
             eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
-            ts = parse_mdatetime(ts) # TODO make dynamic?
+            ts = _parse_utcdt(ts) # TODO make dynamic?
             att = json.loads(att)
             met = json.loads(met)
             if tp == EventTypes.LEAVE_CONTENT:
@@ -716,7 +723,6 @@ def get_pages(**kwargs) -> List[Page]:
 
 
 # TODO need to merge 'progress' and 'left'
-from kython import group_by_key
 
 def _event_key(evt):
     tie_breaker = 0
@@ -781,9 +787,17 @@ def print_history(**kwargs):
 
 
 def main():
-    from kython.klogging import setup_logzero
+    # TODO FIXME need to use proper timzone..
     logger = get_logger()
-    setup_logzero(logger, level=logging.INFO)
+    level = logging.DEBUG
+    logger.setLevel(level)
+    ch = logging.StreamHandler()
+    ch.setLevel(level)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+
 
     p = argparse.ArgumentParser()
     p.add_argument('--db', type=Path, help='By default will try to read the database from your Kobo device. If you path a directory, will try to use all Kobo databases it can find.')
