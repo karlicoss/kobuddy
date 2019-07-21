@@ -12,17 +12,17 @@ finally:
     del get_distribution, DistributionNotFound
 
 
+import argparse
 from datetime import datetime
 import logging
-import os
 from typing import List, NamedTuple, Iterator, Optional, Set, Tuple, Dict, Sequence
 from typing_extensions import Protocol
 import json
 from pathlib import Path
 from functools import lru_cache
 import struct
-import pytz
 import warnings
+import pytz
 
 from kython import cproperty, group_by_key, the
 from kython.kerror import unwrap
@@ -128,12 +128,12 @@ class Highlight(Event):
         return self.row['Text']
 
     @property
-    def annotation(self) -> str:
+    def annotation(self) -> Optional[str]:
         """
         Your comment
         """
-        # always non-null judging by db
-        return unwrap(self.row['Annotation'])
+        # TODO not sure if should distinguish between None and empty string..
+        return self.row['Annotation']
 
     @property
     def eid(self) -> str:
@@ -145,7 +145,7 @@ class Highlight(Event):
         if text is None:
             return 'bookmark'
         else:
-            ann = self.annotation
+            ann = self.annotation or ''
             if len(ann) > 0:
                 return 'annotation'
             else:
@@ -715,8 +715,7 @@ class BookEvents:
 
     @property
     def finished(self) -> Optional[datetime]:
-        # TODO go from end?
-        for e in self.events:
+        for e in reversed(self.events):
             if isinstance(e, FinishedEvent):
                 return e.dt
         return None
@@ -738,28 +737,32 @@ def iter_book_events(**kwargs):
         yield from b.events
 
 def print_history(**kwargs):
+    def fmt_dt(dt: datetime) -> str:
+        return dt.strftime('%d %b %Y %H:%M')
     for bevents in get_books(**kwargs):
         print()
-        print(bevents.book, bevents.started, bevents.finished)
+        sts = None if bevents.started is None else fmt_dt(bevents.started) # weird but sometimes it is None..
+        fns = '' if bevents.finished is None else fmt_dt(bevents.finished)
+        print(bevents.book)
+        print(f'Started : {sts}')
+        print(f'Finished: {fns}')
         for e in bevents.events:
-            print("-- " + str(e))
+            print(f"-- {fmt_dt(e.dt)}: {e.summary}")
 
 
 def main():
     from kython.klogging import setup_logzero
     logger = get_logger()
-    setup_logzero(logger, level=logging.DEBUG)
+    setup_logzero(logger, level=logging.INFO)
 
-    import argparse
     p = argparse.ArgumentParser()
     p.add_argument('--limit', type=int)
     p.add_argument('mode', nargs='?')
     args = p.parse_args()
-    if args.mode == 'history':
+    if args.mode == 'history' or args.mode is None:
         print_history(limit=args.limit)
     else:
-        assert args.mode is None
-        raise NotImplementedError
+        raise RuntimeError(f'Unexpected mode {args.mode}')
 
 
     # TODO also events shouldn't be cumulative?

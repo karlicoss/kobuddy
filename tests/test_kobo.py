@@ -58,3 +58,7 @@ def test_pages():
     assert ann.book.author == 'Greg McKeown'
 
     assert len(pages) == 7
+
+
+def test_history():
+    kobuddy.print_history()
