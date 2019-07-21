@@ -12,12 +12,12 @@ jobs:
       - run: sudo apt install python3-pip
       - run: python3 -m pip install --user tox
 
-      - run: python3 -m pip install --user pytest
+      - run: python3 -m pip install --user pytest mypy pylint
       - run: python3 -m pip install --user -e .
       - run: PYTHONPATH=src python3 -m pytest -s tests/test_kobo.py
 
-      - run: python3 -m mypy   src/kobuddy
-      - run: python3 -m pylint src/kobuddy
+      - run: python3 -m mypy      src/kobuddy
+      - run: python3 -m pylint -E src/kobuddy
       # TODO fix tox...
       # - run: python3 -m tox
 
