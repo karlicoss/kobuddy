@@ -13,30 +13,40 @@ finally:
 
 
 import argparse
-from datetime import datetime
-import logging
-from typing import List, NamedTuple, Iterator, Optional, Set, Tuple, Dict, Sequence
-from typing_extensions import Protocol
 import json
-from pathlib import Path
-from functools import lru_cache
+import logging
 import struct
 import warnings
-import pytz
+from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
+from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
+    Tuple, Union)
 
+import dataset
+import pytz
 from kython import cproperty, group_by_key, the
 from kython.kerror import unwrap
 from kython.pdatetime import parse_mdatetime
+from typing_extensions import Protocol
 
-import dataset # type: ignore
-
-_PATH = Path("/L/backups/kobo/")
 
 def get_logger():
     return logging.getLogger('kobo-provider')
 
-def _get_all_dbs() -> List[Path]:
-    return list(sorted(_PATH.glob('*.sqlite')))
+
+# a bit nasty to have a global variable here... will rewrite later
+DATABASES: List[Path] = []
+
+def set_databases(dbp: Optional[Union[Path, str]]):
+    if dbp is None:
+        raise NotImplementedError
+    dbp = Path(dbp)
+    if dbp.is_dir():
+        DATABASES.extend(sorted(dbp.rglob('*.sqlite')))
+    else:
+        DATABASES.append(dbp)
+
 
 ContentId = str
 
@@ -392,7 +402,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
 
     # TODO handle all_ here?
     logger = get_logger()
-    dbs = _get_all_dbs()
+    dbs = DATABASES
     if limit is not None:
         # pylint: disable=invalid-unary-operand-type
         dbs = dbs[-limit:]
@@ -575,7 +585,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
 
 
 def _get_last_backup() -> Path:
-    return max(_get_all_dbs())
+    return max(DATABASES)
 
 def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
@@ -756,9 +766,15 @@ def main():
     setup_logzero(logger, level=logging.INFO)
 
     p = argparse.ArgumentParser()
+    p.add_argument('--db', type=Path, help='By default will try to read the database from your Kobo device. If you path a directory, will try to use all Kobo databases it can find.')
     p.add_argument('--limit', type=int)
     p.add_argument('mode', nargs='?')
+    # TODO figure out how to open db in read only mode..
+
     args = p.parse_args()
+
+    set_databases(args.db)
+
     if args.mode == 'history' or args.mode is None:
         print_history(limit=args.limit)
     else:

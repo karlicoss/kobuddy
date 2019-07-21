@@ -4,12 +4,13 @@ import pytz
 
 import kobuddy
 
-# TODO ugh, horrible
 def get_test_dbs():
     # db = Path(__file__).absolute().parent.parent / 'KoboShelfes' / 'KoboReader.sqlite.0'
     db = Path(__file__).absolute().parent / 'data' / 'kobo_notes' / 'input' / 'KoboReader.sqlite'
     return [db]
-kobuddy._get_all_dbs = get_test_dbs
+
+# a bit meh, but ok for now
+kobuddy.set_databases(get_test_dbs())
 
 from kobuddy import _iter_events_aux, get_events, get_pages, _iter_highlights
 
