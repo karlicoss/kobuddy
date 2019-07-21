@@ -15,11 +15,14 @@ finally:
 import argparse
 import json
 import logging
+import shutil
 import struct
 import warnings
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from tempfile import NamedTemporaryFile, TemporaryFile
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
     Tuple, Union)
 
@@ -29,6 +32,8 @@ from kython import cproperty, group_by_key, the
 from kython.kerror import unwrap
 from kython.pdatetime import parse_mdatetime
 from typing_extensions import Protocol
+
+from kobuddy.kobo_device import get_kobo_mountpoint
 
 
 def get_logger():
@@ -40,12 +45,26 @@ DATABASES: List[Path] = []
 
 def set_databases(dbp: Optional[Union[Path, str]]):
     if dbp is None:
-        raise NotImplementedError
-    dbp = Path(dbp)
-    if dbp.is_dir():
-        DATABASES.extend(sorted(dbp.rglob('*.sqlite')))
+        mount = get_kobo_mountpoint()
+        if mount is None:
+            raise RuntimeError("Coulnd't find mounted Kobo device, are you sure it's connected? (perhaps try using different label?)")
+        db = mount / '.kobo' / 'KoboReader.sqlite'
+        @contextmanager
+        def tmp_db():
+            # hacky way to use tmp file for database..
+            # TODO figure out how to properly open db in read only mode..
+            with NamedTemporaryFile() as tf:
+                shutil.copy(db, tf.name)
+                DATABASES.append(Path(tf.name))
+                yield
+        return tmp_db()
     else:
-        DATABASES.append(dbp)
+        dbp = Path(dbp)
+        if dbp.is_dir():
+            DATABASES.extend(sorted(dbp.rglob('*.sqlite')))
+        else:
+            DATABASES.append(dbp)
+        return nullcontext()
 
 
 ContentId = str
@@ -769,34 +788,14 @@ def main():
     p.add_argument('--db', type=Path, help='By default will try to read the database from your Kobo device. If you path a directory, will try to use all Kobo databases it can find.')
     p.add_argument('--limit', type=int)
     p.add_argument('mode', nargs='?')
-    # TODO figure out how to open db in read only mode..
 
     args = p.parse_args()
 
-    set_databases(args.db)
-
-    if args.mode == 'history' or args.mode is None:
-        print_history(limit=args.limit)
-    else:
-        raise RuntimeError(f'Unexpected mode {args.mode}')
-
-
-    # TODO also events shouldn't be cumulative?
-    # evts = iter_events() # limit=5)
-    # evts = filter(lambda x: not isinstance(x, Highlight), evts)
-
-    # for book, events in group_by_key(evts, key=lambda e: e.book).items():
-    #     # if book.content_id != 'b09b236c-9a6e-44b7-9727-8187d98d8419':
-    #     #     continue
-    #     print()
-    #     print(type(book), book, book.content_id)
-    #     for e in sorted(events, key=lambda e: e.dt): # TODO not sure when should be sorted
-    #         # TODO shit. offset
-    #         print("-- " + str(e))
-    # test_pages()
-    # test_get_all()
-
-# import sys; exec("global info\ndef info(type, value, tb):\n    import ipdb, traceback; traceback.print_exception(type, value, tb); ipdb.pm()"); sys.excepthook = info # type: ignore
+    with set_databases(args.db):
+        if args.mode == 'history' or args.mode is None:
+            print_history(limit=args.limit)
+        else:
+            raise RuntimeError(f'Unexpected mode {args.mode}')
 
 
 if __name__ == '__main__':
