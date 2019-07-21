@@ -11,7 +11,7 @@ def get_test_dbs():
     return [db]
 kobuddy._get_all_dbs = get_test_dbs
 
-from kobuddy import _iter_events_aux, get_todos, get_events, get_pages, _iter_highlights
+from kobuddy import _iter_events_aux, get_events, get_pages, _iter_highlights
 
 
 def test_events():
@@ -22,11 +22,6 @@ def test_events():
 def test_hls():
     for h in _iter_highlights():
         print(h)
-
-
-def test_todos():
-    todos = get_todos()
-    assert len(todos) > 3
 
 
 def test_get_all():

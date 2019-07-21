@@ -662,13 +662,6 @@ def by_annotation(predicatish: Predicatish, **kwargs) -> List[Highlight]:
             res.append(h)
     return res
 
-# TODO move to private provider..
-def get_todos():
-    def with_todo(ann):
-        if ann is None:
-            ann = ''
-        return 'todo' in ann.lower().split()
-    return by_annotation(with_todo)
 
 class Page(NamedTuple):
     highlights: Sequence[Highlight]
