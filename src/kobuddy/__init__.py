@@ -30,8 +30,8 @@ import dataset # type: ignore
 import pytz
 from typing_extensions import Protocol
 
-from kobuddy.common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext
-from kobuddy.kobo_device import get_kobo_mountpoint
+from .common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext
+from .kobo_device import get_kobo_mountpoint
 
 
 
