@@ -39,6 +39,10 @@ from .kobo_device import get_kobo_mountpoint
 # a bit nasty to have a global variable here... will rewrite later
 DATABASES: List[Path] = []
 
+# I use all databases to merge a unified data export since
+# e.g. if you delete book from device, hightlights/bookmarks just disappear
+
+
 def set_databases(dbp: Optional[Union[Path, str]]):
     if dbp is None:
         mount = get_kobo_mountpoint()
@@ -191,6 +195,16 @@ class Highlight(Event):
     # def title(self) -> str:
     #     return self.w.title
 
+    @property
+    def _key(self):
+        return (self.dt, self.text, self.annotation)
+
+    def __eq__(self, o):
+        return self._key == o._key
+
+    def __hash__(self):
+        return hash(self._key)
+
 class OtherEvent(Event):
     def __init__(self, dt: datetime, book: Book, eid: str):
         self._dt = dt
@@ -335,18 +349,14 @@ class Extra(NamedTuple):
 def _load_books(db) -> List[Tuple[Book, Extra]]:
     logger = get_logger()
     content_table = db.load_table('content')
+    items: List[Tuple[Book, Extra]] = []
     # wtf... that fails with some sqlalchemy crap
     # books = content_table.find(ContentType=6)
-    # shit, no book id weirdly...
-    items: List[Tuple[Book, Extra]] = []
-    # for book in MANUAL_BOOKS:
-    #     items.append((book, None))
-
     books = db.query('SELECT * FROM content WHERE ContentType=6')
     for b in books:
         content_id = b['ContentID']
         isbn       = b['ISBN']
-        title      = b['Title'].strip() # ugh. not sure about that, but sometimes helped 
+        title      = b['Title'].strip() # ugh. not sure about that, but sometimes helped
         author     = b['Attribution']
 
         time_spent = b['TimeSpentReading']
@@ -619,10 +629,6 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 logger.warning(f'Unhandled entry of type {tp}: {row}')
 
 
-def _get_last_backup() -> Path:
-    return max(DATABASES)
-
-
 def get_all_books():
     books = Books()
     for bfile in DATABASES:
@@ -637,15 +643,18 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
     books = get_all_books()
 
-    # TODO FIXME books should be merged from all available sources
-    bfile = _get_last_backup() # TODO FIXME really last? or we want to get all??
-    db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ???
+    yielded: Set[Highlight] = set()
+    for bfile in DATABASES:
+        for h in _load_highlights(bfile, books=books):
+            if h not in yielded:
+                yield h
+                yielded.add(h)
 
-    # TODO SHIT! definitely, e.g. if you delete book from device, hightlights/bookmarks just go. can check on mathematician's apology from 20180902
 
+def _load_highlights(bfile: Path, books: Books):
+    logger = get_logger()
     logger.info(f"Using %s for highlights", bfile)
-
-    # TODO returns result?
+    db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ???
     for bm in db.query('SELECT * FROM Bookmark'):
         volumeid = bm['VolumeID']
         book = books.by_content_id(volumeid)
@@ -854,7 +863,7 @@ def main():
         if args.mode == 'books':
             print_books()
         elif args.mode == 'annotations':
-            print_annotations() # TODO FIXME
+            print_annotations()
         else:
             raise RuntimeError(f'Unexpected mode {args.mode}')
 
