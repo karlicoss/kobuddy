@@ -22,10 +22,13 @@ except VersionConflict:
 if __name__ == "__main__":
     setup(
         use_pyscaffold=True,
+        extras_require={
+            'testing': ['pytest'],
+            'linting': ['pytest', 'mypy', 'pylint'],
+        },
         package_data={
             'kobuddy': [
                 'py.typed',
-                'export_kobo/export-kobo.py',
             ],
         },
     )
