@@ -43,7 +43,7 @@ If you pass a directory, will try to use all Kobo databases it can find.
     with set_databases(args.db):
         if args.mode == 'progress':
             print_progress()
-        if args.mode == 'books':
+        elif args.mode == 'books':
             print_books()
         elif args.mode == 'annotations':
             print_annotations()

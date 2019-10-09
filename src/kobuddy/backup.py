@@ -9,9 +9,16 @@ from kobo_device import get_kobo_mountpoint # type: ignore
 
 
 def main():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description='''
+Backup tool for Kobo device database.
+
+You can run it via cron, e.g. every minute and next time you connect you book via USB database would be backed up.
+
+Potentially you could also add the script to udev rules.
+
+''')
     p.add_argument('--label', default='KOBOeReader', help="device label (check lsblk if default doesn't work)")
-    p.add_argument('path', type=Path, help='directory or file to dump the database')
+    p.add_argument('path', type=Path, help='target directory or file to dump the database')
     args = p.parse_args()
 
     target = args.path

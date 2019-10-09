@@ -1,0 +1,103 @@
+# -*- org-confirm-babel-evaluate: nil; -*-
+
+[[https://circleci.com/gh/karlicoss/orger/tree/master][https://circleci.com/gh/karlicoss/kobuddy/tree/master.svg?style=svg]]
+
+Kobuddy is a tool to access Kobo Reader sqlite database and extract useful things from it.
+
+Tested on Kobo Aura One, however database format shouldn't be different on other devices.
+I'll happily accept PRs if you find any issues.
+
+* Installing
+** TODO pip?
+
+* Usage
+  
+** as a standalone app
+#+begin_src bash  :exports both :results value scalar
+./kobuddy --help
+#+end_src
+
+#+RESULTS:
+#+begin_example
+usage: __main__.py [-h] [--db DB] {books,progress,annotations} ...
+
+Library to parse and provide Python interface for your Kobo reader
+
+positional arguments:
+  {books,progress,annotations}
+    books               print all books
+    progress            print all book reading progress
+    annotations         print all annotations (bookmarks/highlights/comments)
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --db DB               By default will try to read the database from your
+                        Kobo device. If you pass a directory, will try to use
+                        all Kobo databases it can find.
+#+end_example
+
+Example of printing reading progress:
+
+#+begin_src bash :exports source
+./kobuddy --db /L/backups/kobo progress
+#+end_src
+
+#+begin_example
+Perihelion Summer by Greg Egan
+Started : 27 Jul 2019 14:39
+Finished: 05 Oct 2019 14:00
+-- 27 Jul 2019 14:39: reading
+-- 04 Aug 2019 16:40: highlight
+-- 27 Aug 2019 12:33: reading: 25%
+-- 02 Oct 2019 17:33: reading: 39%, read for 7 mins
+-- 02 Oct 2019 17:42: reading: 46%, read for 8 mins
+-- 02 Oct 2019 17:46: reading: 48%, read for 3 mins
+-- 02 Oct 2019 17:48: reading: 50%
+-- 02 Oct 2019 17:52: reading: 52%, read for 4 mins
+-- 02 Oct 2019 21:49: reading: 75%
+-- 02 Oct 2019 21:50: reading: 76%, read for 29 mins
+-- 05 Oct 2019 11:56: reading: 86%, read for 14 mins
+-- 05 Oct 2019 13:50: reading: 90%
+-- 05 Oct 2019 14:00: reading: 100%, read for 19 mins
+-- 05 Oct 2019 14:00: finished, total time spent 200 mins
+#+end_example
+
+** as a library
+   
+#+begin_src python :exports both :results value scalar :dir src
+  import kobuddy
+  kobuddy.set_databases('/L/backups/kobo/')
+  return kobuddy.get_books()[8: 10]
+
+#+end_src
+
+#+RESULTS:
+: [Blindsight by Peter Watts, Classical Mechanics by John C. Baez & Derek K. Wise]
+                        
+
+You can also find [[https://github.com/karlicoss/orger/blob/master/modules/kobo2org.py][some]] [[https://github.com/karlicoss/orger/blob/master/modules/kobo.py][examples]] in Orger.
+
+** as a backup tool
+#+begin_src bash  :exports both :results value scalar
+./backup --help
+#+end_src
+
+#+RESULTS:
+#+begin_example
+usage: backup.py [-h] [--label LABEL] path
+
+Backup tool for Kobo device database. You can run it via cron, e.g. every
+minute and next time you connect you book via USB database would be backed up.
+Potentially you could also add the script to udev rules.
+
+positional arguments:
+  path           target directory or file to dump the database
+
+optional arguments:
+  -h, --help     show this help message and exit
+  --label LABEL  device label (check lsblk if default doesn't work)
+#+end_example
+
+* Related projects/services
+- [[https://github.com/pettarin/export-kobo][export-kobo]]: only processes annotations from a single database
+- [[https://www.thekobonotes.com]]: closed source; you have to upload database manually, however it does display them as nice html

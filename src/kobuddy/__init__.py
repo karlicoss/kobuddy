@@ -627,7 +627,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 logger.warning(f'Unhandled entry of type {tp}: {row}')
 
 
-def get_all_books():
+def _get_books():
     books = Books()
     for bfile in DATABASES:
         # TODO dispose?
@@ -636,10 +636,12 @@ def get_all_books():
             books.add(b)
     return books
 
+def get_books():
+    return _get_books().all()
 
 def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
-    books = get_all_books()
+    books = _get_books()
 
     yielded: Set[Highlight] = set()
     for bfile in DATABASES:
@@ -812,8 +814,7 @@ def print_progress(**kwargs):
 
 
 def print_books():
-    books = get_all_books()
-    for b in books.all():
+    for b in get_books():
         print(b)
 
 
