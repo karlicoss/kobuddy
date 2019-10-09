@@ -1,3 +1,11 @@
+"""
+Kobuddy is a tool to backup Kobo Reader sqlite database and extract useful things from it.
+
+It gives you access to books, annotations, progress events and more!
+
+Tested on Kobo Aura One, however database format shouldn't be different on other devices.
+I'll happily accept PRs if you find any issues or want to help with reverse engineering more events.
+"""
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:
@@ -661,8 +669,10 @@ def _load_highlights(bfile: Path, books: Books):
         assert book is not None
         # TODO make defensive?
         # TODO could be example of useful defensiveness in a provider 
-        # TODO rename from Highlight?
         yield Highlight(bm, book=book)
+
+def get_highlights(**kwargs) -> List[Highlight]:
+    return list(sorted(_iter_highlights(**kwargs), key=lambda h: h.created))
 
 # TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
 
@@ -697,32 +707,7 @@ def get_events(**kwargs) -> List[Event]:
     return list(sorted(iter_events(**kwargs), key=kkey))
 
 
-# TODO maybe type over T?
-_Predicate = Callable[[str], bool]
-Predicatish = Union[str, _Predicate]
-def from_predicatish(p: Predicatish) -> _Predicate:
-    if isinstance(p, str):
-        def ff(s):
-            return s == p
-        return ff
-    else:
-        return p
-
-
-def get_highlights(**kwargs) -> List[Highlight]:
-    return list(sorted(_iter_highlights(**kwargs), key=lambda h: h.created))
-
-def by_annotation(predicatish: Predicatish, **kwargs) -> List[Highlight]:
-    pred = from_predicatish(predicatish)
-
-    res: List[Highlight] = []
-    for h in get_highlights(**kwargs):
-        if pred(h.annotation):
-            res.append(h)
-    return res
-
-
-class Page(NamedTuple):
+class BookWithHighlights(NamedTuple):
     highlights: Sequence[Highlight]
 
     @cproperty
@@ -735,17 +720,14 @@ class Page(NamedTuple):
         return max(h.dt for h in self.highlights)
 
 
-# TODO need to reuse fully assembled highlights, from all backups
-# TODO give better names?
-def get_pages(**kwargs) -> List[Page]:
+def get_books_with_highlights(**kwargs) -> List[BookWithHighlights]:
     highlights = get_highlights(**kwargs)
     grouped = group_by_key(highlights, key=lambda e: e.book)
-    pages = []
+    res = []
     for book, group in grouped.items():
         sgroup = tuple(sorted(group, key=lambda e: e.created))
-        pages.append(Page(highlights=sgroup))
-    pages = list(sorted(pages, key=lambda p: p.dt))
-    return pages
+        res.append(BookWithHighlights(highlights=sgroup))
+    return list(sorted(res, key=lambda p: p.dt))
 
 
 # TODO need to merge 'progress' and 'left'

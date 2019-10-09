@@ -2,13 +2,24 @@
 
 [[https://circleci.com/gh/karlicoss/orger/tree/master][https://circleci.com/gh/karlicoss/kobuddy/tree/master.svg?style=svg]]
 
-Kobuddy is a tool to access Kobo Reader sqlite database and extract useful things from it.
+#+begin_src python :exports results :results drawer :dir src
+import kobuddy
+return kobuddy.__doc__
+#+end_src
+
+#+RESULTS:
+:results:
+
+Kobuddy is a tool to backup Kobo Reader sqlite database and extract useful things from it.
+
+It gives you access to books, annotations, progress events and more!
 
 Tested on Kobo Aura One, however database format shouldn't be different on other devices.
-I'll happily accept PRs if you find any issues.
+I'll happily accept PRs if you find any issues or want to help with reverse engineering more events.
+:end:
 
 * Installing
-** TODO pip?
+~pip3 install --user .~
 
 * Usage
   
@@ -75,7 +86,9 @@ Finished: 05 Oct 2019 14:00
 : [Blindsight by Peter Watts, Classical Mechanics by John C. Baez & Derek K. Wise]
                         
 
-You can also find [[https://github.com/karlicoss/orger/blob/master/modules/kobo2org.py][some]] [[https://github.com/karlicoss/orger/blob/master/modules/kobo.py][examples]] in Orger.
+You can also find [[https://github.com/karlicoss/orger/blob/master/modules/kobo2org.py][some]] [[https://github.com/karlicoss/orger/blob/master/modules/kobo.py][examples]] in Orger or [[https://github.com/karlicoss/my/blob/master/my/books/kobo.py][my]] package.
+
+If you are looking for some specific Kobo events, check out ~EventTbl~ class, there is a good chance it's been reverse engineered.
 
 ** as a backup tool
 #+begin_src bash  :exports both :results value scalar

@@ -12,7 +12,7 @@ def get_test_db():
 # a bit meh, but ok for now
 kobuddy.set_databases(get_test_db())
 
-from kobuddy import _iter_events_aux, get_events, get_pages, _iter_highlights
+from kobuddy import _iter_events_aux, get_events, get_books_with_highlights, _iter_highlights
 
 
 def test_events():
@@ -32,8 +32,8 @@ def test_get_all():
         print(d)
 
 
-def test_pages():
-    pages = get_pages()
+def test_books_with_highlights():
+    pages = get_books_with_highlights()
 
     g = pages[0]
     assert 'Essentialism' in g.book
