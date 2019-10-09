@@ -63,3 +63,9 @@ def test_pages():
 
 def test_history():
     kobuddy.print_history()
+
+def test_annotations():
+    kobuddy.print_annotations()
+
+def test_books():
+    kobuddy.print_books()
