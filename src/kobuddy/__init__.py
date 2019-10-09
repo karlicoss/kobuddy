@@ -12,15 +12,13 @@ finally:
 
 
 import json
-import logging
 import shutil
 import struct
 import warnings
 from contextlib import contextmanager
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryFile
+from tempfile import NamedTemporaryFile
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
                     Tuple, Union, Callable)
 
@@ -800,7 +798,7 @@ def iter_book_events(**kwargs):
 def _fmt_dt(dt: datetime) -> str:
     return dt.strftime('%d %b %Y %H:%M')
 
-def print_history(**kwargs):
+def print_progress(**kwargs):
     for bevents in get_books_with_events(**kwargs):
         print()
         sts = None if bevents.started is None else _fmt_dt(bevents.started) # weird but sometimes it is None..

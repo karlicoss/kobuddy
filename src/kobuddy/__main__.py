@@ -3,7 +3,7 @@ import logging
 import argparse
 from pathlib import Path
 
-from kobuddy import set_databases, print_history, print_books, print_annotations, get_logger
+from kobuddy import set_databases, print_progress, print_books, print_annotations, get_logger
 
 def setup_logger(logger, level=None, format=None, datefmt=None):
     import logging
@@ -25,16 +25,24 @@ def main():
     setup_logger(logger, level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
-    p = argparse.ArgumentParser()
-    p.add_argument('--db', type=Path, help='By default will try to read the database from your Kobo device. If you path a directory, will try to use all Kobo databases it can find.')
-    p.add_argument('mode', nargs='?')
+    p = argparse.ArgumentParser(description="""
+Library to parse and provide Python interface for your Kobo reader
+""")
+    p.add_argument('--db', type=Path, help='''
+By default will try to read the database from your Kobo device.
+If you pass a directory, will try to use all Kobo databases it can find.
+    ''', required=False)
+    sp = p.add_subparsers(dest='mode')
+    sp.add_parser('books'      , help='print all books')
+    sp.add_parser('progress'   , help='print all book reading progress')
+    sp.add_parser('annotations', help='print all annotations (bookmarks/highlights/comments)')
     # TODO FIXME document..
 
     args = p.parse_args()
 
     with set_databases(args.db):
-        if args.mode == 'history':
-            print_history()
+        if args.mode == 'progress':
+            print_progress()
         if args.mode == 'books':
             print_books()
         elif args.mode == 'annotations':
