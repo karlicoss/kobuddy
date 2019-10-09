@@ -121,10 +121,12 @@ def _parse_utcdt(s: Optional[str]) -> Optional[datetime]:
         s = s[:-1] # python can't handle it...
     for fmt in (
             '%Y-%m-%dT%H:%M:%S',
-            '%Y-%m-%dT%H:%M:%S.%f',
+            '%Y-%m-%dT%H:%M:%S.%f', # contained in older database exports
     ):
         try:
             res = datetime.strptime(s, fmt)
+            # starting from certain date, microseconds stopped appearing in Kobo database, so we normalise it
+            res = res.replace(microsecond=0)
             break
         except ValueError:
             continue

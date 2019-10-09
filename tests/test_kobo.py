@@ -55,7 +55,7 @@ def test_pages():
     assert ann.kind == 'annotation'
     assert ann.text == 'He does this by finding which machine has the biggest queue of materials waiting behind it and finds a way to increase its efficiency.'
     assert ann.annotation == 'Bottleneck'
-    assert ann.dt == datetime(year=2017, month=8, day=12, hour=3, minute=49, second=13, microsecond=773000, tzinfo=pytz.utc)
+    assert ann.dt == datetime(year=2017, month=8, day=12, hour=3, minute=49, second=13, microsecond=0, tzinfo=pytz.utc)
     assert ann.book.author == 'Greg McKeown'
 
     assert len(pages) == 7
