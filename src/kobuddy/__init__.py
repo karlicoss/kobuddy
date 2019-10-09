@@ -67,10 +67,10 @@ ContentId = str
 
 # some things are only set for book parts: e.g. BookID, BookTitle
 class Book(NamedTuple):
-    content_id: ContentId
-    isbn: str
     title: str
     author: str
+    content_id: ContentId
+    isbn: str
 
     def __repr__(self):
         return f'{self.title} by {self.author}'
@@ -131,9 +131,8 @@ def _parse_utcdt(s: Optional[str]) -> Optional[datetime]:
     return res
 
 
+# TODO not so sure about inheriting event..
 class Highlight(Event):
-
-    # TODO pass books objec?
     def __init__(self, row: Dict[str, str], book: Book):
         self.row = row
         self._book = book
@@ -288,6 +287,13 @@ class Books:
         else:
             raise RuntimeError(f"Multiple items for {key}: {bb}")
 
+    def all(self) -> List[Book]:
+        bset = set()
+        for d in [self.cid2books, self.isbn2books, self.title2books]:
+            for l in d.values():
+                bset.update(l)
+        return list(sorted(bset, key=lambda b: b.title))
+
     def add(self, book: Book):
         Books._reg(self.cid2books, book.content_id, book)
         Books._reg(self.isbn2books, book.isbn, book)
@@ -303,7 +309,7 @@ class Books:
         return Books._get(self.title2books, title)
 
 
-    # TODO bad name..
+    # TODO not a great name?
     def by_dict(self, d) -> Book:
         vid = d.get('volumeid', None)
         isbn = d.get('isbn', None)
@@ -326,7 +332,7 @@ class Extra(NamedTuple):
     last_read: Optional[datetime]
 
 
-def load_books(db) -> List[Tuple[Book, Extra]]:
+def _load_books(db) -> List[Tuple[Book, Extra]]:
     logger = get_logger()
     content_table = db.load_table('content')
     # wtf... that fails with some sqlalchemy crap
@@ -348,11 +354,16 @@ def load_books(db) -> List[Tuple[Book, Extra]]:
         status     = int(b['ReadStatus'])
         last_read  = b['DateLastRead']
 
+        user_id = b['___UserID']
+        if user_id == '':
+            # that seems to mean that book is an ad, not an actual book loaded on device
+            continue
+
         book = Book(
-            content_id=content_id,
-            isbn=isbn,
             title=title,
             author=author,
+            content_id=content_id,
+            isbn=isbn,
         )
         extra = Extra(
             time_spent=time_spent,
@@ -437,7 +448,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         logger.info('processing %s', fname)
         db = dataset.connect(f'sqlite:///{fname}', reflect_views=False, ensure_schema=False) # TODO ??? 
 
-        for b, extra in load_books(db):
+        for b, extra in _load_books(db):
             books.add(b)
             if extra is None:
                 continue
@@ -611,20 +622,24 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
 def _get_last_backup() -> Path:
     return max(DATABASES)
 
+
+def get_all_books():
+    books = Books()
+    for bfile in DATABASES:
+        # TODO dispose?
+        db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
+        for b, _ in _load_books(db):
+            books.add(b)
+    return books
+
+
 def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
+    books = get_all_books()
 
-
-    bfile = _get_last_backup() # TODO FIXME really last? or we want to get all??
-
-    books = Books()
     # TODO FIXME books should be merged from all available sources
-
-    # TODO dispose?
-    db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
-    for b, _ in load_books(db):
-        books.add(b)
-
+    bfile = _get_last_backup() # TODO FIXME really last? or we want to get all??
+    db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ???
 
     # TODO SHIT! definitely, e.g. if you delete book from device, hightlights/bookmarks just go. can check on mathematician's apology from 20180902
 
@@ -634,7 +649,9 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     for bm in db.query('SELECT * FROM Bookmark'):
         volumeid = bm['VolumeID']
         book = books.by_content_id(volumeid)
-        assert book is not None # TODO defensive?
+        assert book is not None
+        # TODO make defensive?
+        # TODO could be example of useful defensiveness in a provider 
         # TODO rename from Highlight?
         yield Highlight(bm, book=book)
 
@@ -757,58 +774,87 @@ class BookEvents:
         return self.events[-1].dt
 
 
-def iter_books(**kwargs):
+def iter_books_with_events(**kwargs):
     evts = iter_events(**kwargs)
     for book, events in group_by_key(evts, key=lambda e: e.book).items():
         yield BookEvents(book, events)
 
 
-def get_books(**kwargs):
-    return list(sorted(iter_books(**kwargs), key=lambda be: be.last))
+def get_books_with_events(**kwargs):
+    return list(sorted(iter_books_with_events(**kwargs), key=lambda be: be.last))
 
 
 def iter_book_events(**kwargs):
-    for b in get_books(**kwargs):
+    for b in get_books_with_events(**kwargs):
         yield from b.events
 
+def _fmt_dt(dt: datetime) -> str:
+    return dt.strftime('%d %b %Y %H:%M')
 
 def print_history(**kwargs):
-    def fmt_dt(dt: datetime) -> str:
-        return dt.strftime('%d %b %Y %H:%M')
-    for bevents in get_books(**kwargs):
+    for bevents in get_books_with_events(**kwargs):
         print()
-        sts = None if bevents.started is None else fmt_dt(bevents.started) # weird but sometimes it is None..
-        fns = '' if bevents.finished is None else fmt_dt(bevents.finished)
+        sts = None if bevents.started is None else _fmt_dt(bevents.started) # weird but sometimes it is None..
+        fns = '' if bevents.finished  is None else _fmt_dt(bevents.finished)
         print(bevents.book)
+        # TODO hmm, f-strings not gonna work in py 3.5
         print(f'Started : {sts}')
         print(f'Finished: {fns}')
         for e in bevents.events:
-            print(f"-- {fmt_dt(e.dt)}: {e.summary}")
+            print(f"-- {_fmt_dt(e.dt)}: {e.summary}")
+
+
+def print_books():
+    books = get_all_books()
+    for b in books.all():
+        print(b)
+
+
+def print_annotations():
+    for i in get_highlights():
+        h = f"""
+{_fmt_dt(i.dt)} {i._book}
+    {i.text}
+        {i.annotation}
+""".strip('\n')
+        print(h)
+        print("------")
+
+
+def setup_logger(logger, level=None, format=None, datefmt=None):
+    import logging
+    old_root = logging.root
+    try:
+        logging.root = logger
+        logging.basicConfig(
+            level=level or logging.DEBUG,
+            format=format or '%(name)s %(asctime)s %(levelname)-8s %(filename)s:%(lineno)-4d %(message)s',
+            datefmt=datefmt or '%Y-%m-%d %H:%M:%S',
+        )
+    finally:
+        logging.root = old_root
 
 
 def main():
     # TODO FIXME need to use proper timzone..
     logger = get_logger()
-    level = logging.DEBUG
-    logger.setLevel(level)
-    ch = logging.StreamHandler()
-    ch.setLevel(level)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
+    setup_logger(logger, level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
     p = argparse.ArgumentParser()
     p.add_argument('--db', type=Path, help='By default will try to read the database from your Kobo device. If you path a directory, will try to use all Kobo databases it can find.')
-    p.add_argument('--limit', type=int)
     p.add_argument('mode', nargs='?')
+    # TODO FIXME document..
 
     args = p.parse_args()
 
     with set_databases(args.db):
-        if args.mode == 'history' or args.mode is None:
-            print_history(limit=args.limit)
+        if args.mode == 'history':
+            print_history()
+        if args.mode == 'books':
+            print_books()
+        elif args.mode == 'annotations':
+            print_annotations() # TODO FIXME
         else:
             raise RuntimeError(f'Unexpected mode {args.mode}')
 

@@ -17,10 +17,12 @@ def main():
     target = args.path
     if target.is_dir():
         today = datetime.now().strftime('%Y%m%d')
+        # TODO a bit meh...
         target = target / f'KoboReader-{today}.sqlite'
 
     # TODO maybe use db mtime?
-    if target.exists(): # we don't want to overwrite. maybe configure that with flags?
+    if target.exists():
+        # we don't want to overwrite. maybe configure that with flags?
         # TODO log??
         return
 
@@ -32,7 +34,6 @@ def main():
     assert db.exists()
 
     print(f'Backing up Kobo database to {target}', file=sys.stderr)
-    # TODO atomic copy in kython?
     tmp = target.with_suffix('.tmp')
     shutil.copy(db, tmp)
     tmp.rename(target)
