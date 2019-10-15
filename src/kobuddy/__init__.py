@@ -298,10 +298,11 @@ class AnalyticsEvents:
 
 
 class Books:
-    def __init__(self) -> None:
+    def __init__(self, create_if_missing=False) -> None:
         self.cid2books: Dict[str, List[Book]] = {}
         self.isbn2books: Dict[str, List[Book]] = {}
         self.title2books: Dict[str, List[Book]] = {}
+        self.create_if_missing = create_if_missing
 
     @staticmethod
     def _reg(dct, key, book):
@@ -357,7 +358,17 @@ class Books:
             res = self.by_isbn(isbn)
         elif title is not None:
             res = self.by_title(title)
-        assert res is not None
+
+        if res is None and self.create_if_missing:
+            book = Book(
+                title=title or '???',
+                author=title or vid or isbn or '???',
+                content_id=vid or '???',
+                isbn=isbn or '???',
+            )
+            self.add(book)
+            res = book
+        assert res is not None, d
         return res
 
 class Extra(NamedTuple):
@@ -474,7 +485,8 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         # pylint: disable=invalid-unary-operand-type
         dbs = dbs[-limit:]
 
-    books = Books()
+    # TODO make it configurable?
+    books = Books(create_if_missing=True)
 
     for fname in dbs:
         logger.info('processing %s', fname)
@@ -512,12 +524,9 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
 
             # TODO should assert this in 'full' mode when we rebuild from the very start...
             # assert book is not None
-            book = books.by_content_id(cid)
-            if book is None:
-                # TODO not sure about warnings..  maybe add to books class?
-                warnings.warn(f'book not found: {row}')
-                continue
-
+            book = books.by_dict({
+                'volumeid': cid,
+            })
             # TODO FIXME need unique uid...
             # TODO def needs tests.. need to run ignored through tests as well
             if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
@@ -631,6 +640,9 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                     'SearchExecuted',
                     'Sideload',
                     'Extras',
+                    'AutoColorToggled',
+                    'WifiSettings',
+                    'WifiToggle',
             ):
                 pass # just ignore
             elif tp in (
