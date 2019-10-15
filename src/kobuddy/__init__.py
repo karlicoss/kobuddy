@@ -418,74 +418,74 @@ def _load_books(db) -> List[Tuple[Book, Extra]]:
     return items
 
 
+# TODO Event table? got all sort of things from june 2017
+# 1012 looks like starting to read..
+# 1012/1013 -- finishing?
+class EventTbl:
+    EventType      = 'EventType'
+    EventCount     = 'EventCount'
+    LastOccurrence = 'LastOccurrence'
+    ContentID      = 'ContentID'
+    Checksum       = 'Checksum'
+    ExtraData      = 'ExtraData'
+    # TODO ExtraData got some interesting blobs..
+
+    class Types:
+        # occurs occasionally throughout reading.. first event looks like a good candidate for 'started to read'
+        T3 = 3
+
+        # always appears as one of the last events. also seems to be same as DateLastRead. So reasonable to assume it means book finished
+        BOOK_FINISHED = 5
+
+        # could be book purchases? although for one book, occurst 4 times so doesn't make sense..
+        T7 = 7
+
+        # not sure what are these, doen't have contentid and accumulates throughout history
+        T0 = 0
+        T1 = 1
+        T6 = 6
+        T8 = 8
+        T79 = 79
+
+        # looks like dictionary lookups (judging to DictionaryName in blob)
+        T9 = 9
+
+        # 80 occurs in pair with 5, but also sometimes repeats for dozens of times.
+        T80 = 80
+
+        # some random totally unrelated timestamp appearing for some Epubs
+        T37 = 37
+
+        # happens very often, sometimes in bursts of 5 over 5 seconds. could be page turns?
+        T46 = 46
+
+        PROGRESS_25 = 1012
+        # TODO hmm. not sure if progress evennts are true for books which are actually still in progress though..
+        PROGRESS_50 = 1013
+        PROGRESS_75 = 1014
+
+        # almost always occurs in pairs with T3, but not sure what is it
+        T1020 = 1020
+
+        # 1021 seems to coincide with 'progress'
+        T1021 = 1021
+
+        # ??? in test database
+        T99999 = 99999
+
+        # ??? appeared on 20190701
+        T4 = 4
+        T68 = 68
+
+        # ??? from  KoboShelfes db
+        T73 = 73 # 3 of these
+        T74 = 74 # 2 of these
+        T27 = 27 # 3 of these
+        T28 = 28 # 5 of these
+        T36 = 36 # 6 of these
+        #
+
 def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
-    # TODO Event table? got all sort of things from june 2017
-    # 1012 looks like starting to read..
-    # 1012/1013 -- finishing?
-    class EventTbl:
-        EventType      = 'EventType'
-        EventCount     = 'EventCount'
-        LastOccurrence = 'LastOccurrence'
-        ContentID      = 'ContentID'
-        Checksum       = 'Checksum'
-        ExtraData = 'ExtraData'
-        # TODO ExtraData got some interesting blobs..
-
-        class Types:
-            # occurs occasionally throughout reading.. first event looks like a good candidate for 'started to read'
-            T3 = 3
-
-            # always appears as one of the last events. also seems to be same as DateLastRead. So reasonable to assume it means book finished
-            BOOK_FINISHED = 5
-
-            # could be book purchases? although for one book, occurst 4 times so doesn't make sense..
-            T7 = 7
-
-            # not sure what are these, doen't have contentid and accumulates throughout history
-            T0 = 0
-            T1 = 1
-            T6 = 6
-            T8 = 8
-            T79 = 79
-
-            # looks like dictionary lookups (judging to DictionaryName in blob)
-            T9 = 9
-
-            # 80 occurs in pair with 5, but also sometimes repeats for dozens of times.
-            T80 = 80
-
-            # some random totally unrelated timestamp appearing for some Epubs
-            T37 = 37
-
-            # happens very often, sometimes in bursts of 5 over 5 seconds. could be page turns?
-            T46 = 46
-
-            PROGRESS_25 = 1012
-            # TODO hmm. not sure if progress evennts are true for books which are actually still in progress though..
-            PROGRESS_50 = 1013
-            PROGRESS_75 = 1014
-
-            # almost always occurs in pairs with T3, but not sure what is it
-            T1020 = 1020
-
-            # 1021 seems to coincide with 'progress'
-            T1021 = 1021
-
-            # ??? in test database
-            T99999 = 99999
-
-            # ??? appeared on 20190701
-            T4 = 4
-            T68 = 68
-
-            # ??? from  KoboShelfes db
-            T73 = 73 # 3 of these
-            T74 = 74 # 2 of these
-            T27 = 27 # 3 of these
-            T28 = 28 # 5 of these
-            T36 = 36 # 6 of these
-            #
-
     # TODO handle all_ here?
     logger = get_logger()
     dbs = DATABASES
@@ -510,175 +510,186 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                 yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=f'{b.content_id}-{fname.name}')
 
         ET = EventTbl
-        ETT = ET.Types
         for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'): # TODO order by?
-            tp, count, last, cid, checksum, extra_data = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum], row[f'hex({ET.ExtraData})']
-            if tp in (
-                    ETT.T37,
-                    ETT.T7,
-                    ETT.T9,
-                    ETT.T1020,
-                    ETT.T80,
-                    ETT.T46,
-
-                    ETT.T0, ETT.T1, ETT.T6, ETT.T8, ETT.T79,
-
-                    ETT.T1021,
-                    ETT.T99999,
-                    ETT.T4,
-                    ETT.T68,
-                    ETT.T73,
-                    ETT.T74,
-                    ETT.T27,
-                    ETT.T28,
-                    ETT.T36,
-            ):
-                continue
-
-            # TODO should assert this in 'full' mode when we rebuild from the very start...
-            # assert book is not None
-            book = books.by_dict({
-                'volumeid': cid,
-            })
-            # TODO FIXME need unique uid...
-            # TODO def needs tests.. need to run ignored through tests as well
-            if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
-                logger.error('unexpected event: %s %s', book, row)
-                raise RuntimeError(str(row)) # TODO return kython.Err?
-
-            blob = bytearray.fromhex(extra_data)
-            if tp == ETT.T46:
-                # it's gote some extra stuff before timestamps for we need to locate timestamps first
-                found = blob.find(b'\x00e\x00v') # TODO this might be a bit slow, could be good to decypher how to jump straight to start of events
-                if found == -1:
-                    assert count == 0 # meh
-                    continue
-                blob = blob[found - 8:]
-
-            data_start = 47
-
-            dts = []
-            _, zz, _, cnt = struct.unpack('>8s30s5sI', blob[:data_start])
-            assert zz[1::2] == b'eventTimestamps'
-            # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
-
-            data_end = data_start + (5 + 4) * cnt
-            for ts,  in struct.iter_unpack('>5xI', blob[data_start: data_end]):
-                dts.append(pytz.utc.localize(datetime.utcfromtimestamp(ts)))
-            for i, x in enumerate(dts):
-                eid = checksum + "_" + str(i)
-
-                if tp == ETT.T3:
-                    yield ProgressEvent(dt=x, book=book, eid=eid)
-                elif tp == ETT.BOOK_FINISHED:
-                    yield FinishedEvent(dt=x, book=book, eid=eid)
-                elif tp == ETT.PROGRESS_25:
-                    yield ProgressEvent(dt=x, book=book, prog=25, eid=eid)
-                elif tp == ETT.PROGRESS_50:
-                    yield ProgressEvent(dt=x, book=book, prog=50, eid=eid)
-                elif tp == ETT.PROGRESS_75:
-                    yield ProgressEvent(dt=x, book=book, prog=75, eid=eid)
-                else:
-                    yield MiscEvent(dt=x, book=book, payload='EVENT ' + str(tp), eid=eid)
+            yield from _iter_events_aux_Event(row=row, books=books)
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
         # TODO ugh. used to be events_table.all(), but started getting some 'Mandatory' field with a wrong schema at some point...
         for row in db.query(f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'): # TODO order by??
-            eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
-            ts = _parse_utcdt(ts) # TODO make dynamic?
-            att = json.loads(att)
-            met = json.loads(met)
-            if tp == EventTypes.LEAVE_CONTENT:
-                book = books.by_dict(att)
-                prog = att.get('progress', None) # sometimes it doesn't actually have it (e.g. in Oceanic)
-                secs = int(met['SecondsRead'])
-                # TODO pages turned in met
-                ev = ProgressEvent(
-                    dt=ts,
-                    book=book,
-                    prog=prog,
-                    seconds_read=secs,
-                    eid=eid,
-                )
-                if secs >= 60:
-                    yield ev
-                else:
-                    logger.debug("skipping %s, it's too short", ev)
-            elif tp == EventTypes.START:
-                book = books.by_dict(att)
-                yield StartEvent(
-                    dt=ts,
-                    book=book,
-                    eid=eid,
-                )
-            elif tp == EventTypes.PROGRESS:
-                book = books.by_dict(att)
-                prog = att['progress']
-                yield ProgressEvent(
-                    dt=ts,
-                    book=book,
-                    eid=eid,
-                    prog=prog,
-                )
-            elif tp == EventTypes.FINISHED:
-                book = books.by_dict(att)
-                # TODO IsMarkAsFinished?
-                yield FinishedEvent(
-                    dt=ts,
-                    book=book,
-                    eid=eid,
-                )
-            elif tp in (
-                    'AdobeErrorEncountered',
-                    'AppSettings',
-                    'AppStart',
-                    'BatteryLevelAtSync',
-                    'BrightnessAdjusted',
-                    '/Home',
-                    'HomeWidgetClicked',
-                    'MainNavOption',
-                    'MarkAsUnreadPrompt',
-                    'OpenReadingSettingsMenu',
-                    'PluggedIn',
-                    'ReadingSettings',
-                    'StatusBarOption',
-                    'StoreBookClicked',
-                    'StoreHome',
-                    'Books', # not even clear what's it for
-                    'ChangedSetting',
-                    'AmbientLightSensorToggled',
-                    'QuickTurnTriggered',
-                    'ButtonSwapPreferences',
-                    'SearchExecuted',
-                    'Sideload',
-                    'Extras',
-                    'AutoColorToggled',
-                    'WifiSettings',
-                    'WifiToggle',
-            ):
-                pass # just ignore
-            elif tp in (
-                    # This will be handled later..
-                    'MarkAsFinished',
-                    'CreateBookmark',
-                    'CreateHighlight',
-                    'CreateNote', # TODO??
-            ):
-                pass
-            elif tp in (
-                    # might handle later, but not now..
-                    'DictionaryLookup',
-                    'OpenContent',
-                    'RemoveContent',
-                    'Search',
-                    'AccessLibrary',
-                    'LibrarySort',
-                    'TileSelected',
-            ):
-                pass
-            else:
-                logger.warning(f'Unhandled entry of type {tp}: {row}')
+            yield from _iter_events_aux_AnalyticsEvents(row=row, books=books)
+
+
+def _iter_events_aux_Event(*, row, books: Books) -> Iterator[Event]:
+    logger = get_logger()
+    ET = EventTbl
+    ETT = ET.Types
+    tp, count, last, cid, checksum, extra_data = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum], row[f'hex({ET.ExtraData})']
+    if tp in (
+            ETT.T37,
+            ETT.T7,
+            ETT.T9,
+            ETT.T1020,
+            ETT.T80,
+            ETT.T46,
+
+            ETT.T0, ETT.T1, ETT.T6, ETT.T8, ETT.T79,
+
+            ETT.T1021,
+            ETT.T99999,
+            ETT.T4,
+            ETT.T68,
+            ETT.T73,
+            ETT.T74,
+            ETT.T27,
+            ETT.T28,
+            ETT.T36,
+    ):
+        return
+
+    # TODO should assert this in 'full' mode when we rebuild from the very start...
+    # assert book is not None
+    book = books.by_dict({
+        'volumeid': cid,
+    })
+    # TODO FIXME need unique uid...
+    # TODO def needs tests.. need to run ignored through tests as well
+    if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
+        logger.error('unexpected event: %s %s', book, row)
+        raise RuntimeError(str(row)) # TODO return kython.Err?
+
+    blob = bytearray.fromhex(extra_data)
+    if tp == ETT.T46:
+        # it's gote some extra stuff before timestamps for we need to locate timestamps first
+        found = blob.find(b'\x00e\x00v') # TODO this might be a bit slow, could be good to decypher how to jump straight to start of events
+        if found == -1:
+            assert count == 0 # meh
+            return
+        blob = blob[found - 8:]
+
+    data_start = 47
+
+    dts = []
+    _, zz, _, cnt = struct.unpack('>8s30s5sI', blob[:data_start])
+    assert zz[1::2] == b'eventTimestamps', blob
+    # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
+
+    data_end = data_start + (5 + 4) * cnt
+    for ts,  in struct.iter_unpack('>5xI', blob[data_start: data_end]):
+        dts.append(pytz.utc.localize(datetime.utcfromtimestamp(ts)))
+    for i, x in enumerate(dts):
+        eid = checksum + "_" + str(i)
+
+        if tp == ETT.T3:
+            yield ProgressEvent(dt=x, book=book, eid=eid)
+        elif tp == ETT.BOOK_FINISHED:
+            yield FinishedEvent(dt=x, book=book, eid=eid)
+        elif tp == ETT.PROGRESS_25:
+            yield ProgressEvent(dt=x, book=book, prog=25, eid=eid)
+        elif tp == ETT.PROGRESS_50:
+            yield ProgressEvent(dt=x, book=book, prog=50, eid=eid)
+        elif tp == ETT.PROGRESS_75:
+            yield ProgressEvent(dt=x, book=book, prog=75, eid=eid)
+        else:
+            yield MiscEvent(dt=x, book=book, payload='EVENT ' + str(tp), eid=eid)
+
+def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
+    logger = get_logger()
+    AE = AnalyticsEvents
+    eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
+    ts = _parse_utcdt(ts) # TODO make dynamic?
+    att = json.loads(att)
+    met = json.loads(met)
+    if tp == EventTypes.LEAVE_CONTENT:
+        book = books.by_dict(att)
+        prog = att.get('progress', None) # sometimes it doesn't actually have it (e.g. in Oceanic)
+        secs = int(met['SecondsRead'])
+        # TODO pages turned in met
+        ev = ProgressEvent(
+            dt=ts,
+            book=book,
+            prog=prog,
+            seconds_read=secs,
+            eid=eid,
+        )
+        if secs >= 60:
+            yield ev
+        else:
+            logger.debug("skipping %s, it's too short", ev)
+    elif tp == EventTypes.START:
+        book = books.by_dict(att)
+        yield StartEvent(
+            dt=ts,
+            book=book,
+            eid=eid,
+        )
+    elif tp == EventTypes.PROGRESS:
+        book = books.by_dict(att)
+        prog = att['progress']
+        yield ProgressEvent(
+            dt=ts,
+            book=book,
+            eid=eid,
+            prog=prog,
+        )
+    elif tp == EventTypes.FINISHED:
+        book = books.by_dict(att)
+        # TODO IsMarkAsFinished?
+        yield FinishedEvent(
+            dt=ts,
+            book=book,
+            eid=eid,
+        )
+    elif tp in (
+            'AdobeErrorEncountered',
+            'AppSettings',
+            'AppStart',
+            'BatteryLevelAtSync',
+            'BrightnessAdjusted',
+            '/Home',
+            'HomeWidgetClicked',
+            'MainNavOption',
+            'MarkAsUnreadPrompt',
+            'OpenReadingSettingsMenu',
+            'PluggedIn',
+            'ReadingSettings',
+            'StatusBarOption',
+            'StoreBookClicked',
+            'StoreHome',
+            'Books', # not even clear what's it for
+            'ChangedSetting',
+            'AmbientLightSensorToggled',
+            'QuickTurnTriggered',
+            'ButtonSwapPreferences',
+            'SearchExecuted',
+            'Sideload',
+            'Extras',
+            'AutoColorToggled',
+            'WifiSettings',
+            'WifiToggle',
+    ):
+        pass # just ignore
+    elif tp in (
+            # This will be handled later..
+            'MarkAsFinished',
+            'CreateBookmark',
+            'CreateHighlight',
+            'CreateNote', # TODO??
+    ):
+        pass
+    elif tp in (
+            # might handle later, but not now..
+            'DictionaryLookup',
+            'OpenContent',
+            'RemoveContent',
+            'Search',
+            'AccessLibrary',
+            'LibrarySort',
+            'TileSelected',
+    ):
+        pass
+    else:
+        logger.warning(f'Unhandled entry of type {tp}: {row}')
 
 
 def _get_books():
