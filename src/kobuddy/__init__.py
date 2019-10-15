@@ -6,6 +6,8 @@ It gives you access to books, annotations, progress events and more!
 Tested on Kobo Aura One, however database format shouldn't be different on other devices.
 I'll happily accept PRs if you find any issues or want to help with reverse engineering more events.
 """
+import warnings
+
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:
@@ -19,22 +21,22 @@ finally:
 
 
 
+from itertools import chain
 import json
 import shutil
 import struct
-import warnings
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
-                    Tuple, Union)
+                    Tuple, Union, Iterable)
 
 import dataset # type: ignore
 import pytz
 from typing_extensions import Protocol
 
-from .common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext
+from .common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext, Res, sorted_res, split_res
 from .kobo_device import get_kobo_mountpoint
 
 
@@ -485,7 +487,8 @@ class EventTbl:
         T36 = 36 # 6 of these
         #
 
-def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
+# TODO use literal mypy types?
+def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
     # TODO handle all_ here?
     logger = get_logger()
     dbs = DATABASES
@@ -493,7 +496,7 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
         # pylint: disable=invalid-unary-operand-type
         dbs = dbs[-limit:]
 
-    # TODO make it configurable?
+    # TODO do it if it's defensive?
     books = Books(create_if_missing=True)
 
     for fname in dbs:
@@ -511,13 +514,29 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
 
         ET = EventTbl
         for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'): # TODO order by?
-            yield from _iter_events_aux_Event(row=row, books=books)
+            try:
+                yield from _iter_events_aux_Event(row=row, books=books)
+            except Exception as e:
+                if   errors == 'throw':
+                    raise e
+                elif errors == 'return':
+                    yield e
+                else:
+                    raise AssertionError(f'errors={errors}')
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
         # TODO ugh. used to be events_table.all(), but started getting some 'Mandatory' field with a wrong schema at some point...
         for row in db.query(f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'): # TODO order by??
-            yield from _iter_events_aux_AnalyticsEvents(row=row, books=books)
+            try:
+                yield from _iter_events_aux_AnalyticsEvents(row=row, books=books)
+            except Exception as e:
+                if   errors == 'throw':
+                    raise e
+                elif errors == 'return':
+                    yield e
+                else:
+                    raise AssertionError(f'errors={errors}')
 
 
 def _iter_events_aux_Event(*, row, books: Books) -> Iterator[Event]:
@@ -734,18 +753,21 @@ def get_highlights(**kwargs) -> List[Highlight]:
 # TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
 
 # TODO not sure if need to be exposed
-def iter_events(**kwargs) -> Iterator[Event]:
+def iter_events(**kwargs) -> Iterator[Res[Event]]:
     yield from _iter_highlights(**kwargs)
 
     seen: Set[Tuple] = set()
     for x in _iter_events_aux(**kwargs):
+        if isinstance(x, Exception):
+            yield x
+            continue
         kk = (x.dt, x.book, x.summary)
         if kk not in seen:
             seen.add(kk)
             yield x
 
 # TODO is this even used apart from tests??
-def get_events(**kwargs) -> List[Event]:
+def get_events(**kwargs) -> List[Res[Event]]:
     def kkey(e):
         cls_order = 0
         if isinstance(e, ProgressEvent):
@@ -758,7 +780,7 @@ def get_events(**kwargs) -> List[Event]:
         if k.tzinfo is None:
             k = k.replace(tzinfo=pytz.utc)
         return (k, cls_order)
-    return list(sorted(iter_events(**kwargs), key=kkey))
+    return list(sorted_res(iter_events(**kwargs), key=kkey))
 
 
 class BookWithHighlights(NamedTuple):
@@ -819,25 +841,30 @@ class BookEvents:
         return self.events[-1].dt
 
 
-def iter_books_with_events(**kwargs):
+def iter_books_with_events(**kwargs) -> Iterator[Res[BookEvents]]:
     evts = iter_events(**kwargs)
-    for book, events in group_by_key(evts, key=lambda e: e.book).items():
+    vit, eit = split_res(evts)
+    for book, events in group_by_key(vit, key=lambda e: e.book).items():
         yield BookEvents(book, events)
+    yield from eit
 
 
-def get_books_with_events(**kwargs):
-    return list(sorted(iter_books_with_events(**kwargs), key=lambda be: be.last))
-
-
-def iter_book_events(**kwargs):
-    for b in get_books_with_events(**kwargs):
-        yield from b.events
+def get_books_with_events(**kwargs) -> Sequence[Res[BookEvents]]:
+    it = iter_books_with_events(**kwargs)
+    vit: Iterable[BookEvents]
+    vit, eit = split_res(it)
+    vit = sorted(vit, key=lambda be: be.last)
+    return list(chain(vit, eit))
 
 def _fmt_dt(dt: datetime) -> str:
     return dt.strftime('%d %b %Y %H:%M')
 
 def print_progress(**kwargs):
+    logger = get_logger()
     for bevents in get_books_with_events(**kwargs):
+        if isinstance(bevents, Exception):
+            logger.exception(bevents)
+            continue
         print()
         sts = None if bevents.started is None else _fmt_dt(bevents.started) # weird but sometimes it is None..
         fns = '' if bevents.finished  is None else _fmt_dt(bevents.finished)

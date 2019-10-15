@@ -1,6 +1,7 @@
 import functools
 import logging
-from typing import Callable, Dict, Iterable, List, Optional, TypeVar
+from typing import Callable, Dict, Iterable, List, Optional, TypeVar, Union, Iterator, Tuple
+from itertools import tee, filterfalse
 
 
 def get_logger():
@@ -47,3 +48,30 @@ from contextlib import contextmanager
 @contextmanager
 def nullcontext(enter_result=None):
     yield enter_result
+
+
+
+V = TypeVar('V', covariant=True)
+Res = Union[V, Exception]
+
+
+# TODO better name?
+def split_res(it: Iterable[Res[V]]) -> Tuple[Iterator[V], Iterator[Exception]]:
+    vit, eit = tee(it)
+    def it_val() -> Iterator[V]:
+        for r in vit:
+            if not isinstance(r, Exception):
+                yield r
+
+    def it_err() -> Iterator[Exception]:
+        for r in eit:
+            if isinstance(r, Exception):
+                yield r
+    return it_val(), it_err()
+
+
+# TODO not sure if should keep it...
+def sorted_res(it: Iterable[Res[V]], key) -> Iterator[Res[V]]:
+    vit, eit = split_res(it)
+    yield from sorted(vit, key=key)
+    yield from eit

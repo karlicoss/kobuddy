@@ -32,6 +32,7 @@ Library to parse and provide Python interface for your Kobo reader
 By default will try to read the database from your Kobo device.
 If you pass a directory, will try to use all Kobo databases it can find.
     ''', required=False)
+    p.add_argument('--errors', choices=['throw', 'return'], default='throw', help="throw: raise on errors immediately; return: handle defensively long as possible and reasonable")
     sp = p.add_subparsers(dest='mode')
     sp.add_parser('books'      , help='print all books')
     sp.add_parser('progress'   , help='print all book reading progress')
@@ -42,7 +43,7 @@ If you pass a directory, will try to use all Kobo databases it can find.
 
     with set_databases(args.db):
         if args.mode == 'progress':
-            print_progress()
+            print_progress(errors=args.errors)
         elif args.mode == 'books':
             print_books()
         elif args.mode == 'annotations':
