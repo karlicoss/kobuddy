@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
-                    Tuple, Union, Callable)
+                    Tuple, Union)
 
 import dataset # type: ignore
 import pytz
@@ -147,11 +147,26 @@ class Highlight(Event):
         self.row = row
         self._book = book
 
-    # modified is either same as created or 0 timestamp? anyway, not very interesting
+    def _error(self, msg: str) -> Exception:
+        return RuntimeError(f'Error while processing {self.row}: {msg}')
+
     @property
     def dt(self) -> datetime:
-        # I checked and it's definitely utc
-        return unwrap(_parse_utcdt(self.row['DateCreated']))
+        """
+        Returns DateCreated.
+
+        On some devices may not be set, so falls back to DateModified (see https://github.com/karlicoss/kobuddy/issues/1 )
+
+        Returns date is in UTC (tested on Kobo Aura One).
+        """
+        # on Kobo Aura One modified was either same as created or 0 timestamp
+        date_attrs = ('DateCreated', 'DateModified')
+        for dattr in date_attrs:
+            # TODO could warn/log if it's not using DateModified
+            res = _parse_utcdt(self.row[dattr])
+            if res is not None:
+                return res
+        raise self._error(f"Couldn't infer date from {date_attrs}")
 
     # @property
     # def book(self) -> Book: # TODO FIXME should handle it carefully in kobo provider users
