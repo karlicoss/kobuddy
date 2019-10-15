@@ -380,7 +380,8 @@ def _load_books(db) -> List[Tuple[Book, Extra]]:
         title      = b['Title'].strip() # ugh. not sure about that, but sometimes helped
         author     = b['Attribution']
 
-        time_spent = b['TimeSpentReading']
+        # TODO not so sure about that; it was the case for KoboShelfes databases
+        time_spent = b.get('TimeSpentReading', 0)
         percent    = b['___PercentRead']
         status     = int(b['ReadStatus'])
         last_read  = b['DateLastRead']
@@ -628,6 +629,8 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                     'QuickTurnTriggered',
                     'ButtonSwapPreferences',
                     'SearchExecuted',
+                    'Sideload',
+                    'Extras',
             ):
                 pass # just ignore
             elif tp in (
@@ -644,6 +647,9 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                     'OpenContent',
                     'RemoveContent',
                     'Search',
+                    'AccessLibrary',
+                    'LibrarySort',
+                    'TileSelected',
             ):
                 pass
             else:
