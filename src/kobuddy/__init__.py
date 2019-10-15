@@ -478,6 +478,14 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
             T4 = 4
             T68 = 68
 
+            # ??? from  KoboShelfes db
+            T73 = 73 # 3 of these
+            T74 = 74 # 2 of these
+            T27 = 27 # 3 of these
+            T28 = 28 # 5 of these
+            T36 = 36 # 6 of these
+            #
+
     # TODO handle all_ here?
     logger = get_logger()
     dbs = DATABASES
@@ -519,6 +527,11 @@ def _iter_events_aux(limit=None, **kwargs) -> Iterator[Event]:
                     ETT.T99999,
                     ETT.T4,
                     ETT.T68,
+                    ETT.T73,
+                    ETT.T74,
+                    ETT.T27,
+                    ETT.T28,
+                    ETT.T36,
             ):
                 continue
 
@@ -708,9 +721,6 @@ def get_highlights(**kwargs) -> List[Highlight]:
     return list(sorted(_iter_highlights(**kwargs), key=lambda h: h.created))
 
 # TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
-
-# TODO mm, could also integrate it with goodreads api?...
-# TODO which order is that??
 
 # TODO not sure if need to be exposed
 def iter_events(**kwargs) -> Iterator[Event]:
