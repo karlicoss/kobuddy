@@ -30,7 +30,8 @@ I'll happily accept PRs if you find any issues or want to help with reverse engi
 
 #+RESULTS:
 #+begin_example
-usage: __main__.py [-h] [--db DB] {books,progress,annotations} ...
+usage: __main__.py [-h] [--db DB] [--errors {throw,return}]
+                   {books,progress,annotations} ...
 
 Library to parse and provide Python interface for your Kobo reader
 
@@ -45,6 +46,9 @@ optional arguments:
   --db DB               By default will try to read the database from your
                         Kobo device. If you pass a directory, will try to use
                         all Kobo databases it can find.
+  --errors {throw,return}
+                        throw: raise on errors immediately; return: handle
+                        defensively long as possible and reasonable
 #+end_example
 
 Example of printing reading progress:
