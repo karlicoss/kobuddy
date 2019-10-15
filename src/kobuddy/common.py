@@ -1,6 +1,6 @@
 import functools
 import logging
-from typing import Callable, Dict, Iterable, List, Optional, Type, TypeVar
+from typing import Callable, Dict, Iterable, List, Optional, TypeVar
 
 
 def get_logger():
