@@ -608,10 +608,9 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         b'wordsRead'                 : 8,
 
         b'ViewType'                  : None,
-        # TOOD hmm maybe all remaining shit is viewtype??
-
         b'eventTimestamps'           : None,
     }
+
 
     for _ in range(parts):
         part_name_len, = consume('>I')
@@ -645,21 +644,11 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
 
         parsed[name] = part_data
 
-    # TODO ok, there might be something else now?
-    if pos != len(blob):
-        print(context())
-        reml, = consume('>I')
-        rem,  = consume(f'>{reml}s')
-        print(rem)
-    
     rem = blob[pos:]
     assert rem in [
         b'',
-        b'\x00\x00\x00\x00', # TODO not so sure..
-
-        # some weird stuff on event type 3:
-        b'\x00S\x00l\x00e\x00e\x00p',
-        b'\x00H\x00o\x00m\x00e',
+        # weid, only one event like that...
+        b'\x00S\x00i\x00d\x00e\x00l\x00o\x00a\x00d\x00e\x00d',
     ], context()
 
     # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
