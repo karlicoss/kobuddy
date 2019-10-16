@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
-                    Tuple, Union, Iterable)
+                    Tuple, Union, Iterable, Any)
 
 import dataset # type: ignore
 import pytz
@@ -513,9 +513,9 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
                 yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=f'{b.content_id}-{fname.name}')
 
         ET = EventTbl
-        for row in db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'): # TODO order by?
+        for i, row in enumerate(db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event')): # TODO order by?
             try:
-                yield from _iter_events_aux_Event(row=row, books=books)
+                yield from _iter_events_aux_Event(row=row, books=books, idx=i)
             except Exception as e:
                 if   errors == 'throw':
                     raise e
@@ -539,7 +539,8 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
                     raise AssertionError(f'errors={errors}')
 
 
-def _iter_events_aux_Event(*, row, books: Books) -> Iterator[Event]:
+# TODO FIXME remove idx
+def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     logger = get_logger()
     ET = EventTbl
     ETT = ET.Types
@@ -575,28 +576,95 @@ def _iter_events_aux_Event(*, row, books: Books) -> Iterator[Event]:
     # TODO def needs tests.. need to run ignored through tests as well
     if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
         logger.error('unexpected event: %s %s', book, row)
-        raise RuntimeError(str(row)) # TODO return kython.Err?
+        raise RuntimeError(str(row))
 
     blob = bytearray.fromhex(extra_data)
-    if tp == ETT.T46:
-        # it's gote some extra stuff before timestamps for we need to locate timestamps first
-        found = blob.find(b'\x00e\x00v') # TODO this might be a bit slow, could be good to decypher how to jump straight to start of events
-        if found == -1:
-            assert count == 0 # meh
-            return
-        blob = blob[found - 8:]
 
-    data_start = 47
+    pos = 0
+    def consume(fmt):
+        nonlocal pos
+        sz = struct.calcsize(fmt)
+        res = struct.unpack_from(fmt, blob, offset=pos)
+        pos += sz
+        return res
 
-    dts = []
-    _, zz, _, cnt = struct.unpack('>8s30s5sI', blob[:data_start])
-    assert zz[1::2] == b'eventTimestamps', blob
+
+    parts, = consume('>I')
+
+    parsed = {} # type: Dict[bytes, Any]
+
+    def context():
+        return f'idx: {idx}\nrow: {row}\nparts: {parts}\nblob: {blob}\n pos: {pos}\n remaining: {blob[pos:]}\nparsed: {parsed}'
+
+    lengths = {
+        b'ExtraDataSyncedTimeElapsed': 11,
+        b'ExtraDataSyncedCount'      : 9,
+        b'ExtraDataReadingSeconds'   : 11,
+        b'PagesTurnedThisSession'    : 9,
+        b'Monetization'              : 9,
+        b'IsMarkAsFinished'          : 6,
+
+        # TODO eh, wordsRead is pretty weird; not sure what's the meaning. some giant blob.
+        b'wordsRead'                 : 8,
+
+        # TODO shit. sometimes it's 7, sometimes 9???
+        b'ViewType'                  : 5,
+
+        b'eventTimestamps'           : None,
+        b'Home'                      : 0,
+    }
+
+    # TODO ????
+    for _ in range(parts):
+        part_name_len, = consume('>I')
+        assert part_name_len % 2 == 0, context()
+        fmt = f'>{part_name_len}s'
+        prename, = consume(fmt)
+        # looks like b'\x00P\x00a\x00g\x00e\x00s'
+        assert prename[::2].count(0) == part_name_len // 2, context()
+        name = prename[1::2]
+
+        if name not in lengths:
+            raise RuntimeError(f'Unexpected event kind: {name}\n' + context())
+        part_len = lengths[name]
+
+        if part_len is not None:
+            part_data = consume(f'>{part_len}s')
+        else:
+            # assumes it's timestamps
+            cnt, = consume('>5xI')
+            dts = []
+            for _ in range(cnt):
+                ts, = consume('>5xI')
+                dt = pytz.utc.localize(datetime.utcfromtimestamp(ts))
+                dts.append(dt)
+            part_data = dts
+
+        parsed[name] = part_data
+
+    # TODO ok, there might be something else now?
+    if pos != len(blob):
+        print(context())
+        reml, = consume('>I')
+        rem,  = consume(f'>{reml}s')
+        print(rem)
+    
+    rem = blob[pos:]
+    assert rem in [
+        b'',
+        b'\x00\x00\x00\x00', # TODO not so sure..
+
+        # some weird stuff on event type 3:
+        b'\x00S\x00l\x00e\x00e\x00p',
+        b'\x00H\x00o\x00m\x00e',
+    ], context()
+
     # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
 
-    data_end = data_start + (5 + 4) * cnt
-    for ts,  in struct.iter_unpack('>5xI', blob[data_start: data_end]):
-        dts.append(pytz.utc.localize(datetime.utcfromtimestamp(ts)))
-    for i, x in enumerate(dts):
+    # TODO FIXME handle remaining items
+    timestamps = parsed.get(b'eventTimestamps', []) # type: List[datetime]
+
+    for i, x in enumerate(timestamps):
         eid = checksum + "_" + str(i)
 
         if tp == ETT.T3:
