@@ -607,12 +607,10 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         # TODO eh, wordsRead is pretty weird; not sure what's the meaning. some giant blob.
         b'wordsRead'                 : 8,
 
-        # TODO shit. sometimes it's 7, sometimes 9???
-        b'ViewType'                  : 5,
+        b'ViewType'                  : None,
+        # TOOD hmm maybe all remaining shit is viewtype??
 
         b'eventTimestamps'           : None,
-        b'Home'                      : 0,
-        b'Sleep'                     : 0,
     }
 
     for _ in range(parts):
@@ -630,8 +628,11 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
 
         if part_len is not None:
             part_data = consume(f'>{part_len}s')
-        else:
-            # assumes it's timestamps
+        elif name == b'ViewType':
+            vt_len, = consume('>5xI')
+            vt_body, = consume(f'>{vt_len}s')
+            part_data = vt_body
+        elif name == b'eventTimestamps':
             cnt, = consume('>5xI')
             dts = []
             for _ in range(cnt):
@@ -639,6 +640,8 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
                 dt = pytz.utc.localize(datetime.utcfromtimestamp(ts))
                 dts.append(dt)
             part_data = dts
+        else:
+            raise RuntimeError('Expected fixed length\n' + context())
 
         parsed[name] = part_data
 
