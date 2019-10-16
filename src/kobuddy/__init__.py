@@ -588,9 +588,6 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         pos += sz
         return res
 
-
-    parts, = consume('>I')
-
     parsed = {} # type: Dict[bytes, Any]
 
     def context():
@@ -601,19 +598,30 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         b'ExtraDataSyncedCount'      : 9,
         b'ExtraDataReadingSeconds'   : 11,
         b'PagesTurnedThisSession'    : 9,
-        b'Monetization'              : 9,
         b'IsMarkAsFinished'          : 6,
 
         # TODO eh, wordsRead is pretty weird; not sure what's the meaning. some giant blob.
         b'wordsRead'                 : 8,
 
+        b'Monetization'              : None,
         b'ViewType'                  : None,
         b'eventTimestamps'           : None,
+
+        # TODO not so sure... these might be part of monetization
+        b'Sideloaded'                : 0,
+        b'Paid'                      : 0,
+        b'Preview'                   : 0,
     }
 
-
-    for _ in range(parts):
+    parts, = consume('>I')
+    # ugh. apparently can't trust parts?
+    # for _ in range(parts):
+    while pos < len(blob):
         part_name_len, = consume('>I')
+        if part_name_len == 0:
+            break
+        # sanity check...
+        assert part_name_len < 1000, context()
         assert part_name_len % 2 == 0, context()
         fmt = f'>{part_name_len}s'
         prename, = consume(fmt)
@@ -627,10 +635,6 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
 
         if part_len is not None:
             part_data = consume(f'>{part_len}s')
-        elif name == b'ViewType':
-            vt_len, = consume('>5xI')
-            vt_body, = consume(f'>{vt_len}s')
-            part_data = vt_body
         elif name == b'eventTimestamps':
             cnt, = consume('>5xI')
             dts = []
@@ -639,17 +643,21 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
                 dt = pytz.utc.localize(datetime.utcfromtimestamp(ts))
                 dts.append(dt)
             part_data = dts
+        elif name == b'ViewType':
+            vt_len, = consume('>5xI')
+            vt_body, = consume(f'>{vt_len}s')
+            part_data = vt_body
+        elif name == b'Monetization':
+            qqq, = consume('>5s')
+            if qqq != b'\x00\x00\x00\n\x00':
+                _, = consume('>4s') # no idea what's that..
+            continue
         else:
             raise RuntimeError('Expected fixed length\n' + context())
 
         parsed[name] = part_data
 
-    rem = blob[pos:]
-    assert rem in [
-        b'',
-        # weid, only one event like that...
-        b'\x00S\x00i\x00d\x00e\x00l\x00o\x00a\x00d\x00e\x00d',
-    ], context()
+    assert pos == len(blob)
 
     # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
 
@@ -765,6 +773,7 @@ def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
             'AccessLibrary',
             'LibrarySort',
             'TileSelected',
+            'UserMetadataUpdate',
     ):
         pass
     else:
