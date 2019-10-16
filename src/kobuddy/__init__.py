@@ -612,9 +612,9 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
 
         b'eventTimestamps'           : None,
         b'Home'                      : 0,
+        b'Sleep'                     : 0,
     }
 
-    # TODO ????
     for _ in range(parts):
         part_name_len, = consume('>I')
         assert part_name_len % 2 == 0, context()
