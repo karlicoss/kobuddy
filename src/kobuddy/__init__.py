@@ -581,17 +581,21 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     blob = bytearray.fromhex(extra_data)
 
     pos = 0
-    def consume(fmt):
-        nonlocal pos
-        sz = struct.calcsize(fmt)
-        res = struct.unpack_from(fmt, blob, offset=pos)
-        pos += sz
-        return res
-
     parsed = {} # type: Dict[bytes, Any]
 
     def context():
-        return f'idx: {idx}\nrow: {row}\nparts: {parts}\nblob: {blob}\n pos: {pos}\n remaining: {blob[pos:]}\nparsed: {parsed}'
+        return f'row: {row}\nblob: {blob}\n remaining: {blob[pos:]}\n parsed: {parsed}\n xxx {blob[pos:pos+30]}\n idx: {idx}\n parts: {parts}\n pos: {pos}'
+
+    def consume(fmt):
+        nonlocal pos
+        sz = struct.calcsize(fmt)
+        try:
+            res = struct.unpack_from(fmt, blob, offset=pos)
+        except Exception as e:
+            raise RuntimeError(context()) from e
+        pos += sz
+        return res
+
 
     lengths = {
         b'ExtraDataSyncedTimeElapsed': 11,
