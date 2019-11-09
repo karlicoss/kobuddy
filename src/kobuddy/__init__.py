@@ -598,11 +598,18 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
 
 
     lengths = {
-        b'ExtraDataSyncedTimeElapsed': 11,
         b'ExtraDataSyncedCount'      : 9,
-        b'ExtraDataReadingSeconds'   : 11,
         b'PagesTurnedThisSession'    : 9,
         b'IsMarkAsFinished'          : 6,
+        b'ExtraDataReadingSessions'  : 9,
+        b'ExtraDataReadingSeconds'   : 9,
+        b'ContentType'               : 9,
+
+        # TODO weird, these contain stringified dates
+        b'ExtraDataLastModified'     : 49,
+        b'ExtraDataDateCreated'      : 49,
+
+        b'ExtraDataSyncedTimeElapsed': None,
 
         # TODO eh, wordsRead is pretty weird; not sure what's the meaning. some giant blob.
         b'wordsRead'                 : 9,
@@ -622,6 +629,9 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     # ugh. apparently can't trust parts?
     # for _ in range(parts):
     while pos < len(blob):
+        if blob[pos:] == b'\x000':
+            pos = len(blob)
+            continue
         part_name_len, = consume('>I')
         if part_name_len == 0:
             break
@@ -656,6 +666,12 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
             qqq, = consume('>5s')
             if qqq != b'\x00\x00\x00\n\x00':
                 _, = consume('>4s') # no idea what's that..
+            continue
+        elif name == b'ExtraDataSyncedTimeElapsed':
+            qqq, = consume('>5s4x')
+            # TODO wtf???
+            if qqq == b'\x00\x00\x00\n\x00':
+                consume('>2x')
             continue
         elif name == b'wordCounts':
             vt_cnt, = consume('>5xI')
