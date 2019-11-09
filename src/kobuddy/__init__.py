@@ -601,11 +601,12 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         b'IsMarkAsFinished'          : 6,
 
         # TODO eh, wordsRead is pretty weird; not sure what's the meaning. some giant blob.
-        b'wordsRead'                 : 8,
+        b'wordsRead'                 : 9,
 
         b'Monetization'              : None,
         b'ViewType'                  : None,
         b'eventTimestamps'           : None,
+        b'wordCounts'                : None,
 
         # TODO not so sure... these might be part of monetization
         b'Sideloaded'                : 0,
@@ -652,12 +653,17 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
             if qqq != b'\x00\x00\x00\n\x00':
                 _, = consume('>4s') # no idea what's that..
             continue
+        elif name == b'wordCounts':
+            vt_cnt, = consume('>5xI')
+            vt_len = vt_cnt * 9
+            vt_body, = consume(f'>{vt_len}s')
+            part_data = vt_body
         else:
             raise RuntimeError('Expected fixed length\n' + context())
 
         parsed[name] = part_data
 
-    assert pos == len(blob)
+    assert pos == len(blob), context()
 
     # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
 
