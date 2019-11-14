@@ -954,7 +954,7 @@ def get_books_with_events(**kwargs) -> Sequence[Res[BookEvents]]:
 def _fmt_dt(dt: datetime) -> str:
     return dt.strftime('%d %b %Y %H:%M')
 
-def print_progress(**kwargs):
+def print_progress(full=True, **kwargs):
     logger = get_logger()
     for bevents in get_books_with_events(**kwargs):
         if isinstance(bevents, Exception):
@@ -967,8 +967,9 @@ def print_progress(**kwargs):
         # TODO hmm, f-strings not gonna work in py 3.5
         print(f'Started : {sts}')
         print(f'Finished: {fns}')
-        for e in bevents.events:
-            print(f"-- {_fmt_dt(e.dt)}: {e.summary}")
+        if full:
+            for e in bevents.events:
+                print(f"-- {_fmt_dt(e.dt)}: {e.summary}")
 
 
 def print_books():
