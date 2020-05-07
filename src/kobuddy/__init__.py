@@ -399,6 +399,15 @@ def _load_books(db) -> List[Tuple[Book, Extra]]:
         status     = int(b['ReadStatus'])
         last_read  = b['DateLastRead']
 
+        mimetype    = b['MimeType']
+        if mimetype == 'application/x-kobo-html+pocket':
+            # skip Pocket articles
+            continue
+
+        if mimetype == 'image/png':
+            # skip images
+            continue
+
         user_id = b['___UserID']
         if user_id == '':
             # that seems to mean that book is an ad, not an actual book loaded on device
