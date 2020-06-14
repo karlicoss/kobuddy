@@ -1,34 +1,45 @@
-# -*- coding: utf-8 -*-
-"""
-    Setup file for kobuddy.
-    Use setup.cfg to configure your project.
-
-    This file was generated with PyScaffold 3.2.
-    PyScaffold helps you to put up the scaffold of your new Python project.
-    Learn more under: https://pyscaffold.org/
-"""
-import sys
-
-from pkg_resources import require, VersionConflict
-from setuptools import setup
-
-try:
-    require('setuptools>=38.3')
-except VersionConflict:
-    print("Error: version of setuptools is too old (<38.3)!")
-    sys.exit(1)
+# see https://github.com/karlicoss/pymplate for up-to-date reference
 
 
-if __name__ == "__main__":
+from setuptools import setup, find_packages # type: ignore
+
+
+def main():
+    pkgs = find_packages('src')
+    [pkg] = pkgs
     setup(
-        use_pyscaffold=True,
+        name=pkg,
+        use_scm_version={
+            'version_scheme': 'python-simplified-semver',
+            'local_scheme': 'dirty-tag',
+        },
+        setup_requires=['setuptools_scm'],
+
+        zip_safe=False,
+
+        packages=[pkg],
+        package_dir={'': 'src'},
+        package_data={pkg: ['py.typed']},
+
+        ## ^^^ this should be mostly automatic and not requiring any changes
+
+        url='https://github.com/karlicoss/kobuddy',
+        author='Dima Gerasimov',
+        author_email='karlicoss@gmail.com',
+        description='Backup and extract data from your Kobo reader',
+
+        install_requires=['pytz', 'dataset'],
         extras_require={
             'testing': ['pytest'],
-            'linting': ['pytest', 'mypy', 'pylint'],
-        },
-        package_data={
-            'kobuddy': [
-                'py.typed',
-            ],
+            'linting': ['pytest', 'mypy'],
         },
     )
+
+
+if __name__ == '__main__':
+    main()
+
+# TODO
+# from setuptools_scm import get_version
+# https://github.com/pypa/setuptools_scm#default-versioning-scheme
+# get_version(version_scheme='python-simplified-semver', local_scheme='no-local-version')

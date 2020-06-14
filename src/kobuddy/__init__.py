@@ -7,20 +7,6 @@ Tested on Kobo Aura One, however database format shouldn't be different on other
 I'll happily accept PRs if you find any issues or want to help with reverse engineering more events.
 """
 import warnings
-
-from pkg_resources import get_distribution, DistributionNotFound
-
-try:
-    # Change here if project is renamed and does not equal the package name
-    dist_name = __name__
-    __version__ = get_distribution(dist_name).version
-except DistributionNotFound:
-    __version__ = 'unknown'
-finally:
-    del get_distribution, DistributionNotFound
-
-
-
 from itertools import chain
 import json
 import shutil
@@ -29,12 +15,12 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+import typing
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
                     Tuple, Union, Iterable, Any)
 
 import dataset # type: ignore
 import pytz
-from typing_extensions import Protocol
 
 from .common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext, Res, sorted_res, split_res
 from .kobo_device import get_kobo_mountpoint
@@ -89,6 +75,11 @@ class Book(NamedTuple):
     def bid(self) -> str:
         return self.content_id # not sure but maybe it's fine...
 
+
+if typing.TYPE_CHECKING:
+    from typing_extensions import Protocol
+else:
+    Protocol = object
 
 # TODO not sure, is protocol really necessary here?
 # TODO maybe what we really want is parsing batch of dates? Then it's easier to guess the format.
