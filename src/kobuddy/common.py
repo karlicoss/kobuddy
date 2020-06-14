@@ -21,6 +21,8 @@ def cproperty(f: Callable[[Cl], R]) -> R:
 
 
 A = TypeVar('A')
+
+# TODO switch to more_itertools?
 def the(l: Iterable[A]) -> A:
     it = iter(l)
     try:

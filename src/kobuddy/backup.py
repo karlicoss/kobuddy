@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime
 import shutil
 
-from kobo_device import get_kobo_mountpoint # type: ignore
+from .kobo_device import get_kobo_mountpoint
 
 
 def main():
