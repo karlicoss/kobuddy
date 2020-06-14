@@ -8,19 +8,7 @@ import shutil
 from .kobo_device import get_kobo_mountpoint
 
 
-def main():
-    p = argparse.ArgumentParser(description='''
-Backup tool for Kobo device database.
-
-You can run it via cron, e.g. every minute and next time you connect you book via USB database would be backed up.
-
-Potentially you could also add the script to udev rules.
-
-''')
-    p.add_argument('--label', default='KOBOeReader', help="device label (check lsblk if default doesn't work)")
-    p.add_argument('path', type=Path, help='target directory or file to dump the database')
-    args = p.parse_args()
-
+def run(args):
     target = args.path
     if target.is_dir():
         today = datetime.now().strftime('%Y%m%d')
@@ -44,6 +32,25 @@ Potentially you could also add the script to udev rules.
     tmp = target.with_suffix('.tmp')
     shutil.copy(db, tmp)
     tmp.rename(target)
+
+
+def setup_parser(p):
+    p.add_argument('--label', default='KOBOeReader', help="device label (check lsblk if default doesn't work)")
+    p.add_argument('path', type=Path, help='target directory or file to dump the database')
+
+
+def main():
+    p = argparse.ArgumentParser(description='''
+Backup tool for Kobo device database.
+
+You can run it via cron, e.g. every minute and next time you connect you book via USB database would be backed up.
+
+Potentially you could also add the script to udev rules.
+
+''')
+    setup_parser(p)
+    args = p.parse_args()
+    run(args)
 
 
 if __name__ == '__main__':

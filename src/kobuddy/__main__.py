@@ -37,9 +37,16 @@ If you pass a directory, will try to use all Kobo databases it can find.
     sp.add_parser('books'      , help='print all books')
     sp.add_parser('progress'   , help='print all book reading progress')
     sp.add_parser('annotations', help='print all annotations (bookmarks/highlights/comments)')
+    bp = sp.add_parser('backup', help='run backup helper')
+    import kobuddy.backup
+    kobuddy.backup.setup_parser(bp)
     # TODO FIXME document..
 
     args = p.parse_args()
+
+    if args.mode == 'backup':
+        kobuddy.backup.run(args)
+        return
 
     with set_databases(args.db):
         if args.mode == 'progress':

@@ -1,2 +1,4 @@
 #!/bin/bash -eu
-exec "$(dirname "$0")/src/kobuddy/backup.py" "$@"
+cd "$(dirname "$0")"
+
+PYTHONPATH=src python3 -m kobuddy backup "$@"
