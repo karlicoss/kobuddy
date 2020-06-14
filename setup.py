@@ -33,6 +33,7 @@ def main():
             'testing': ['pytest'],
             'linting': ['pytest', 'mypy'],
         },
+        entry_points={'console_scripts': ['kobuddy = kobuddy.__main__:main']},
     )
 
 
