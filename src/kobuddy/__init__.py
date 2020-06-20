@@ -487,6 +487,14 @@ class EventTbl:
         T36 = 36 # 6 of these
         #
 
+
+def dataset_connect_ro(db: Path):
+    # support read only filesystems (also guarantees we don't change the database by accident)
+    import sqlite3
+    creator = lambda: sqlite3.connect(f'file:{db}?immutable=1', uri=True)
+    return dataset.connect('sqlite:///', engine_kwargs={'creator': creator})
+
+
 # TODO use literal mypy types?
 def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
     # TODO handle all_ here?
@@ -501,7 +509,7 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
 
     for fname in dbs:
         logger.info('processing %s', fname)
-        db = dataset.connect(f'sqlite:///{fname}', reflect_views=False, ensure_schema=False) # TODO ??? 
+        db = dataset_connect_ro(fname)
 
         for b, extra in _load_books(db):
             books.add(b)
@@ -810,7 +818,7 @@ def _get_books():
     books = Books()
     for bfile in DATABASES:
         # TODO dispose?
-        db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ??? 
+        db = dataset_connect_ro(bfile)
         for b, _ in _load_books(db):
             books.add(b)
     return books
@@ -833,7 +841,7 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
 def _load_highlights(bfile: Path, books: Books):
     logger = get_logger()
     logger.info(f"Using %s for highlights", bfile)
-    db = dataset.connect(f'sqlite:///{bfile}', reflect_views=False, ensure_schema=False) # TODO ???
+    db = dataset_connect_ro(bfile)
     for bm in db.query('SELECT * FROM Bookmark'):
         volumeid = bm['VolumeID']
         book = books.by_content_id(volumeid)
