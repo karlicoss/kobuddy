@@ -40,14 +40,7 @@ def setup_parser(p):
 
 
 def main():
-    p = argparse.ArgumentParser(description='''
-Backup tool for Kobo device database.
-
-You can run it via cron, e.g. every minute and next time you connect you book via USB database would be backed up.
-
-Potentially you could also add the script to udev rules.
-
-''')
+    p = argparse.ArgumentParser()
     setup_parser(p)
     args = p.parse_args()
     run(args)

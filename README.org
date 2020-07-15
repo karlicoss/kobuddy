@@ -1,7 +1,5 @@
 # -*- org-confirm-babel-evaluate: nil; -*-
 
-[[https://circleci.com/gh/karlicoss/orger/tree/master][https://circleci.com/gh/karlicoss/kobuddy/tree/master.svg?style=svg]]
-
 #+begin_src python :exports results :results drawer :dir src
 import kobuddy
 return kobuddy.__doc__
@@ -14,47 +12,49 @@ Kobuddy is a tool to backup Kobo Reader sqlite database and extract useful thing
 
 It gives you access to books, annotations, progress events and more!
 
-Tested on Kobo Aura One, however database format shouldn't be different on other devices.
+Tested on Kobo Aura One, however database format should be mostly the same on other Kobo devices.
 I'll happily accept PRs if you find any issues or want to help with reverse engineering more events.
 :end:
 
 * Installing
-~pip3 install --user .~
+From pypi: ~pip3 install --user kobuddy~
+
+You can also use without installing by running =./kobuddy=.
 
 * Usage
   
-** as a standalone app
-#+begin_src bash  :exports both :results value scalar
-./kobuddy --help
+#+begin_src bash  :exports both :results scalar
+kobuddy --help
 #+end_src
 
 #+RESULTS:
 #+begin_example
-usage: __main__.py [-h] [--db DB] [--errors {throw,return}]
-                   {books,progress,annotations} ...
+usage: kobuddy [-h] [--db DB] [--errors {throw,return}] {books,progress,annotations,backup} ...
 
 Library to parse and provide Python interface for your Kobo reader
 
 positional arguments:
-  {books,progress,annotations}
+  {books,progress,annotations,backup}
     books               print all books
     progress            print all book reading progress
     annotations         print all annotations (bookmarks/highlights/comments)
+    backup              backup the database from your Kobo device
 
 optional arguments:
   -h, --help            show this help message and exit
-  --db DB               By default will try to read the database from your
-                        Kobo device. If you pass a directory, will try to use
-                        all Kobo databases it can find.
+  --db DB
+                        By default will try to read the database from your Kobo device.
+                        If you pass a directory, will try to use all Kobo databases it can find.
+
   --errors {throw,return}
-                        throw: raise on errors immediately; return: handle
-                        defensively long as possible and reasonable
+                        throw: raise on errors immediately; return: handle defensively long as possible and reasonable
 #+end_example
 
+** as a standalone app
 Example of printing reading progress:
 
 #+begin_src bash :exports source
-./kobuddy --db /L/backups/kobo progress
+kobuddy --db /L/backups/kobo progress
 #+end_src
 
 #+begin_example
@@ -77,35 +77,20 @@ Finished: 05 Oct 2019 14:00
 -- 05 Oct 2019 14:00: finished, total time spent 200 mins
 #+end_example
 
-** as a library
-   
-#+begin_src python :exports both :results value scalar :dir src
-  import kobuddy
-  kobuddy.set_databases('/L/backups/kobo/')
-  return kobuddy.get_books()[8: 10]
-
-#+end_src
-
-#+RESULTS:
-: [Blindsight by Peter Watts, Classical Mechanics by John C. Baez & Derek K. Wise]
-                        
-
-You can also find [[https://github.com/karlicoss/orger/blob/master/modules/kobo2org.py][some]] [[https://github.com/karlicoss/orger/blob/master/modules/kobo.py][examples]] in Orger or [[https://github.com/karlicoss/my/blob/master/my/books/kobo.py][my]] package.
-
-If you are looking for some specific Kobo events, check out ~EventTbl~ class, there is a good chance it's been reverse engineered.
-
 ** as a backup tool
-#+begin_src bash  :exports both :results value scalar
-./backup --help
+#+begin_src bash  :exports both :results scalar
+kobuddy backup --help
 #+end_src
 
 #+RESULTS:
 #+begin_example
-usage: backup.py [-h] [--label LABEL] path
+usage: kobuddy backup [-h] [--label LABEL] path
 
-Backup tool for Kobo device database. You can run it via cron, e.g. every
-minute and next time you connect you book via USB database would be backed up.
-Potentially you could also add the script to udev rules.
+You can run it via cron, for example every minute. When you connect your device via USB, the database will be backed up.
+
+: * * * * * kobuddy backup /path/to/backups/kobo/
+
+Alternatively, you can add a udev rule or something similar.
 
 positional arguments:
   path           target directory or file to dump the database
@@ -115,6 +100,24 @@ optional arguments:
   --label LABEL  device label (check lsblk if default doesn't work)
 #+end_example
 
+** as a library
+
+#+begin_src python :exports both :results value scalar :dir src
+  import kobuddy
+  kobuddy.set_databases('/L/backups/kobo/')
+  return kobuddy.get_books()[8: 10]
+
+#+end_src
+
+#+RESULTS:
+: [Blindsight by Peter Watts, Classical Mechanics by John C. Baez & Derek K. Wise]
+
+
+You can also find [[https://github.com/karlicoss/orger/blob/master/modules/kobo2org.py][some]] [[https://github.com/karlicoss/orger/blob/master/modules/kobo.py][examples]] in Orger or [[https://github.com/karlicoss/my/blob/master/my/books/kobo.py][my]] package.
+
+If you are looking for some specific Kobo events, check out ~EventTbl~ class, there is a good chance it's been reverse engineered.
+
+
 * Related projects/services
 - [[https://github.com/pettarin/export-kobo][export-kobo]]: only processes annotations from a single database
-- [[https://www.thekobonotes.com]]: closed source; you have to upload database manually, however it does display them as nice html
+- [[https://www.thekobonotes.com]]: closed source; you have to upload database manually, however it does display them as a nice html

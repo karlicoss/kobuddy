@@ -25,9 +25,13 @@ def main():
     setup_logger(logger, level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
-    p = argparse.ArgumentParser(description="""
+    Fmt = lambda prog: argparse.RawTextHelpFormatter(prog, width=100)
+    p = argparse.ArgumentParser(
+        description="""
 Library to parse and provide Python interface for your Kobo reader
-""")
+""",
+        formatter_class=Fmt,
+    )
     p.add_argument('--db', type=Path, help='''
 By default will try to read the database from your Kobo device.
 If you pass a directory, will try to use all Kobo databases it can find.
@@ -37,10 +41,15 @@ If you pass a directory, will try to use all Kobo databases it can find.
     sp.add_parser('books'      , help='print all books')
     sp.add_parser('progress'   , help='print all book reading progress')
     sp.add_parser('annotations', help='print all annotations (bookmarks/highlights/comments)')
-    bp = sp.add_parser('backup', help='run backup helper')
+    bp = sp.add_parser('backup', help='backup the database from your Kobo device', description='''
+You can run it via cron, for example every minute. When you connect your device via USB, the database will be backed up.
+
+: * * * * * kobuddy backup /path/to/backups/kobo/
+
+Alternatively, you can add a udev rule or something similar.
+''', formatter_class=Fmt)
     import kobuddy.backup
     kobuddy.backup.setup_parser(bp)
-    # TODO FIXME document..
 
     args = p.parse_args()
 
