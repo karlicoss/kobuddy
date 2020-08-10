@@ -611,7 +611,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         b'IsMarkAsFinished'          : 6,
         b'ExtraDataReadingSessions'  : 9,
         b'ExtraDataReadingSeconds'   : 9,
-        b'ContentType'               : 9,
+        b'ContentType'               : None,
 
         # TODO weird, these contain stringified dates
         b'ExtraDataLastModified'     : 49,
@@ -684,6 +684,15 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         elif name == b'wordCounts':
             vt_cnt, = consume('>5xI')
             vt_len = vt_cnt * 9
+            vt_body, = consume(f'>{vt_len}s')
+            part_data = vt_body
+        elif name == b'ContentType':
+            qqq, = consume('>4s')
+            if qqq == b'\x00\x00\x00\x00':
+                # wtf?
+                consume('>5x')
+                continue
+            vt_len, = consume('>xI')
             vt_body, = consume(f'>{vt_len}s')
             part_data = vt_body
         else:
