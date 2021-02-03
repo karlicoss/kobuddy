@@ -37,6 +37,7 @@ By default will try to read the database from your Kobo device.
 If you pass a directory, will try to use all Kobo databases it can find.
     ''', required=False)
     p.add_argument('--errors', choices=['throw', 'return'], default='throw', help="throw: raise on errors immediately; return: handle defensively long as possible and reasonable")
+    p.add_argument('--label', default='KOBOeReader', help="device label (check lsblk if default doesn't work)")
     sp = p.add_subparsers(dest='mode')
     sp.add_parser('books'      , help='print all books')
     sp.add_parser('progress'   , help='print all book reading progress')
@@ -57,7 +58,7 @@ Alternatively, you can add a udev rule or something similar.
         kobuddy.backup.run(args)
         return
 
-    with set_databases(args.db):
+    with set_databases(args.db, label=args.label):
         if args.mode == 'progress':
             print_progress(errors=args.errors)
         elif args.mode == 'books':
