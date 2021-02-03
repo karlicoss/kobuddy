@@ -35,11 +35,11 @@ DATABASES: List[Path] = []
 # e.g. if you delete book from device, hightlights/bookmarks just disappear
 
 
-def set_databases(dbp: Optional[Union[Path, str]]):
+def set_databases(dbp: Optional[Union[Path, str]], label='KOBOeReader'):
     if dbp is None:
-        mount = get_kobo_mountpoint()
+        mount = get_kobo_mountpoint(label=label)
         if mount is None:
-            raise RuntimeError("Coulnd't find mounted Kobo device, are you sure it's connected? (perhaps try using different label?)")
+            raise RuntimeError(f"Coulnd't find mounted Kobo device with label '{label}', are you sure it's connected? (perhaps try using different label?)")
         db = mount / '.kobo' / 'KoboReader.sqlite'
         @contextmanager
         def tmp_db():
@@ -252,7 +252,7 @@ class ProgressEvent(OtherEvent):
     def summary(self) -> str:
         return 'reading' + self.verbose
 
-    # TODO FIXME use progress event instead? 
+    # TODO FIXME use progress event instead?
 class StartEvent(OtherEvent):
     @property
     def summary(self) -> str:
@@ -856,7 +856,7 @@ def _load_highlights(bfile: Path, books: Books):
         book = books.by_content_id(volumeid)
         assert book is not None
         # TODO make defensive?
-        # TODO could be example of useful defensiveness in a provider 
+        # TODO could be example of useful defensiveness in a provider
         yield Highlight(bm, book=book)
 
 def get_highlights(**kwargs) -> List[Highlight]:
@@ -1003,4 +1003,3 @@ def print_annotations():
 """.strip('\n')
         print(h)
         print("------")
-
