@@ -637,8 +637,9 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     # ugh. apparently can't trust parts?
     # for _ in range(parts):
     while pos < len(blob):
-        if blob[pos:] == b'\x000':
-            pos = len(blob)
+        wtf = b'\x000'
+        if blob[pos:].startswith(wtf):
+            pos += len(wtf)
             continue
         part_name_len, = consume('>I')
         if part_name_len == 0:
