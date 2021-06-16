@@ -31,7 +31,7 @@ def main():
         install_requires=['pytz', 'dataset'],
         extras_require={
             'testing': ['pytest'],
-            'linting': ['pytest', 'mypy'],
+            'linting': ['pytest', 'mypy', 'lxml', 'types-pytz'],
         },
         entry_points={'console_scripts': ['kobuddy = kobuddy.__main__:main']},
     )
