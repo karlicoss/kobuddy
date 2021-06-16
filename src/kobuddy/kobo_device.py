@@ -12,8 +12,8 @@ def get_kobo_mountpoint(label: str='KOBOeReader') -> Optional[Path]:
         kobos = [k['mountpoint'] for k in kobos]
     except FileNotFoundError:  # macOS (does not have lsblk)
         output = subprocess.check_output(('df', '-Hl')).decode('utf8')
-        output = [o.split() for o in output.split('\n')]
-        kobos = [o[-1] for o in output if f'/Volumes/{label}' in o]
+        output_parts = [o.split() for o in output.split('\n')]
+        kobos = [o[-1] for o in output_parts if f'/Volumes/{label}' in o]
 
     if len(kobos) > 1:
         raise RuntimeError(f'Multiple Kobo devices detected: {kobos}')
