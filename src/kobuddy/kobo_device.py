@@ -1,16 +1,26 @@
 import json
 from pathlib import Path
+import shutil
 import subprocess
 from typing import Optional
 
 
 def get_kobo_mountpoint(label: str='KOBOeReader') -> Optional[Path]:
-    try:  # Linux
+    has_lsblk = shutil.which('lsblk')
+    if has_lsblk:  # on Linux
         xxx = subprocess.check_output(['lsblk', '-f', '--json']).decode('utf8')
         jj = json.loads(xxx)
-        kobos = [d for d in jj['blockdevices'] if d.get('label', None) == label]
-        kobos = [k['mountpoint'] for k in kobos]
-    except FileNotFoundError:  # macOS (does not have lsblk)
+        devices = [d for d in jj['blockdevices'] if d.get('label', None) == label]
+        kobos = []
+        for d in devices:
+            # older lsblk outputs single mountpoint..
+            mp = d.get('mountpoint')
+            if mp is not None:
+                kobos.append(mp)
+            mps = d.get('mountpoints')
+            if mps is not None:
+                kobos.extend(mps)
+    else:
         output = subprocess.check_output(('df', '-Hl')).decode('utf8')
         output_parts = [o.split() for o in output.split('\n')]
         kobos = [o[-1] for o in output_parts if f'/Volumes/{label}' in o]
