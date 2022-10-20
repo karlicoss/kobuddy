@@ -855,7 +855,7 @@ def _load_highlights(bfile: Path, books: Books):
     for bm in db.query('SELECT * FROM Bookmark'):
         volumeid = bm['VolumeID']
         book = books.by_content_id(volumeid)
-        assert book is not None
+        assert book is not None, bm
         # TODO make defensive?
         # TODO could be example of useful defensiveness in a provider
         yield Highlight(bm, book=book)
