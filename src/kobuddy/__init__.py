@@ -307,14 +307,15 @@ class Books:
         dct[key] = books
 
     @staticmethod
-    def _get(dct, key) -> Optional[Book]:
+    def _get(dct, key, *, allow_multiple: bool=False) -> Optional[Book]:
         bb = dct.get(key, [])
         if len(bb) == 0:
             return None
-        elif len(bb) == 1:
+        if len(bb) == 1:
             return bb[0]
-        else:
-            raise RuntimeError(f"Multiple items for {key}: {bb}")
+        if allow_multiple:
+            return bb[-1]
+        raise RuntimeError(f"Multiple items for {key}: {bb}")
 
     def all(self) -> List[Book]:
         bset = set()
@@ -329,10 +330,11 @@ class Books:
         Books._reg(self.title2books, book.title, book)
 
     def by_content_id(self, cid: ContentId) -> Optional[Book]:
-        return Books._get(self.cid2books, cid)
+        # sometimes title might get updated.. so it's possible to have same contentid with multiple titles
+        return Books._get(self.cid2books, cid, allow_multiple=True)
 
     def by_isbn(self, isbn: str) -> Optional[Book]:
-        return Books._get(self.isbn2books, isbn)
+        return Books._get(self.isbn2books, isbn, allow_multiple=True)
 
     def by_title(self, title: str) -> Optional[Book]:
         return Books._get(self.title2books, title)
