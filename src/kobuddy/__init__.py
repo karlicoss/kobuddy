@@ -77,6 +77,7 @@ class Book(NamedTuple):
 
 
 if typing.TYPE_CHECKING:
+    # todo: since 3.8 can use from typing import Protocol everywhere
     from typing_extensions import Protocol
 else:
     Protocol = object
@@ -324,7 +325,19 @@ class Books:
                 bset.update(l)
         return list(sorted(bset, key=lambda b: b.title))
 
-    def add(self, book: Book):
+    def make_orphan_book(self, *, volumeid: str) -> Book:
+        # sometimes volumeid might be pretty cryptic, like a random uuid (e.g. for native kobo books)
+        # but there isn't much we can do about it -- there isn't any info in Bookmark table
+        orphan = Book(
+            title=f'<DELETED BOOK {volumeid}>',
+            author='<kobuddy>',
+            content_id=volumeid,
+            isbn='fake_isbn_{volumeid}',
+        )
+        self.add(orphan)
+        return orphan
+
+    def add(self, book: Book) -> None:
         Books._reg(self.cid2books, book.content_id, book)
         Books._reg(self.isbn2books, book.isbn, book)
         Books._reg(self.title2books, book.title, book)
@@ -842,6 +855,7 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
     books = _get_books()
 
+    # todo more_itertools?
     yielded: Set[Highlight] = set()
     for bfile in DATABASES:
         for h in _load_highlights(bfile, books=books):
@@ -856,11 +870,18 @@ def _load_highlights(bfile: Path, books: Books):
     db = dataset_connect_ro(bfile)
     for bm in db.query('SELECT * FROM Bookmark'):
         volumeid = bm['VolumeID']
-        book = books.by_content_id(volumeid)
-        assert book is not None, bm
-        # TODO make defensive?
-        # TODO could be example of useful defensiveness in a provider
+        mbook = books.by_content_id(volumeid)
+        if mbook is None:
+            # sometimes Kobo seems to recycle old books without recycling the corresponding bookmarks
+            # so we need to be a bit defensive here
+            # see https://github.com/karlicoss/kobuddy/issues/18
+            book = books.make_orphan_book(volumeid=volumeid)
+        else:
+            book = mbook
+        # todo maybe in the future it could be a matter of error policy, i.e. throw vs yield exception vs use orphan object vs ignore
+        # could be example of useful defensiveness in a provider
         yield Highlight(bm, book=book)
+
 
 def get_highlights(**kwargs) -> List[Highlight]:
     return list(sorted(_iter_highlights(**kwargs), key=lambda h: h.created))
