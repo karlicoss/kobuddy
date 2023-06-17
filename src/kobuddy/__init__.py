@@ -883,8 +883,27 @@ def _load_highlights(bfile: Path, books: Books):
         yield Highlight(bm, book=book)
 
 
+def _load_wordlist(bfile: Path):
+    logger = get_logger()
+    logger.info(f"Using %s for highlights", bfile)
+    db = dataset_connect_ro(bfile)
+    for bm in db.query('SELECT * FROM WordList'):
+        yield bm['Text']
+
+
 def get_highlights(**kwargs) -> List[Highlight]:
     return list(sorted(_iter_highlights(**kwargs), key=lambda h: h.created))
+
+
+def get_wordlist() -> Iterator[str]:
+    yielded: Set[str] = set()
+
+    for bfile in DATABASES:
+        for h in _load_wordlist(bfile):
+            if h not in yielded:
+                yield h
+                yielded.add(h)
+
 
 # TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
 
@@ -1027,3 +1046,8 @@ def print_annotations():
 """.strip('\n')
         print(h)
         print("------")
+
+
+def print_wordlist() -> None:
+    for i in get_wordlist():
+        print(i)
