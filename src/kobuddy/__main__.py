@@ -3,7 +3,7 @@ import logging
 import argparse
 from pathlib import Path
 
-from kobuddy import set_databases, print_progress, print_books, print_annotations, get_logger
+from kobuddy import set_databases, print_progress, print_books, print_annotations, print_wordlist, get_logger
 
 def setup_logger(logger, level=None, format=None, datefmt=None):
     import logging
@@ -42,6 +42,7 @@ If you pass a directory, will try to use all Kobo databases it can find.
     sp.add_parser('books'      , help='print all books')
     sp.add_parser('progress'   , help='print all book reading progress')
     sp.add_parser('annotations', help='print all annotations (bookmarks/highlights/comments)')
+    sp.add_parser('wordlist'   , help='print all words from the wordlist')
     bp = sp.add_parser('backup', help='backup the database from your Kobo device', description='''
 You can run it via cron, for example every minute. When you connect your device via USB, the database will be backed up.
 
@@ -65,6 +66,8 @@ Alternatively, you can add a udev rule or something similar.
             print_books()
         elif args.mode == 'annotations':
             print_annotations()
+        elif args.mode == 'wordlist':
+            print_wordlist()
         else:
             raise RuntimeError(f'Unexpected mode {args.mode}')
 
