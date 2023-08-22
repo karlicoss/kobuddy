@@ -11,6 +11,7 @@ from itertools import chain
 import json
 import shutil
 import struct
+import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -19,13 +20,11 @@ import typing
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
                     Tuple, Union, Iterable, Any)
 
-import dataset # type: ignore
 import pytz
 
 from .common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext, Res, sorted_res, split_res
 from .kobo_device import get_kobo_mountpoint
-
-
+from .sqlite import sqlite_connection
 
 
 # a bit nasty to have a global variable here... will rewrite later
@@ -379,6 +378,7 @@ class Books:
         assert res is not None, d
         return res
 
+
 class Extra(NamedTuple):
     time_spent: int
     percent: int
@@ -386,13 +386,10 @@ class Extra(NamedTuple):
     last_read: Optional[datetime]
 
 
-def _load_books(db) -> List[Tuple[Book, Extra]]:
+def _load_books(db: sqlite3.Connection) -> List[Tuple[Book, Extra]]:
     logger = get_logger()
-    content_table = db.load_table('content')
     items: List[Tuple[Book, Extra]] = []
-    # wtf... that fails with some sqlalchemy crap
-    # books = content_table.find(ContentType=6)
-    books = db.query('SELECT * FROM content WHERE ContentType=6')
+    books = db.execute('SELECT * FROM content WHERE ContentType=6')
     for b in books:
         content_id = b['ContentID']
         isbn       = b['ISBN']
@@ -400,7 +397,7 @@ def _load_books(db) -> List[Tuple[Book, Extra]]:
         author     = b['Attribution']
 
         # TODO not so sure about that; it was the case for KoboShelfes databases
-        time_spent = b.get('TimeSpentReading', 0)
+        time_spent = 0 if 'TimeSpentReading' not in b.keys() else b['TimeSpentReading']
         percent    = b['___PercentRead']
         status     = int(b['ReadStatus'])
         last_read  = b['DateLastRead']
@@ -503,13 +500,6 @@ class EventTbl:
         #
 
 
-def dataset_connect_ro(db: Path):
-    # support read only filesystems (also guarantees we don't change the database by accident)
-    import sqlite3
-    creator = lambda: sqlite3.connect(f'file:{db}?immutable=1', uri=True)
-    return dataset.connect('sqlite:///', engine_kwargs={'creator': creator})
-
-
 # TODO use literal mypy types?
 def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
     # TODO handle all_ here?
@@ -522,10 +512,15 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
     # TODO do it if it's defensive?
     books = Books(create_if_missing=True)
 
-    for fname in dbs:
-        logger.info('processing %s', fname)
-        db = dataset_connect_ro(fname)
 
+    def connections():
+        for fname in dbs:
+            logger.info(f'processing {fname}')
+            with sqlite_connection(fname, immutable=True, row_factory='row') as db:
+                yield fname, db
+
+
+    for fname, db in connections():
         for b, extra in _load_books(db):
             books.add(b)
             if extra is None:
@@ -536,7 +531,7 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
                 yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=f'{b.content_id}-{fname.name}')
 
         ET = EventTbl
-        for i, row in enumerate(db.query(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event')): # TODO order by?
+        for i, row in enumerate(db.execute(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event')): # TODO order by?
             try:
                 yield from _iter_events_aux_Event(row=row, books=books, idx=i)
             except Exception as e:
@@ -550,7 +545,7 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
         # TODO ugh. used to be events_table.all(), but started getting some 'Mandatory' field with a wrong schema at some point...
-        for row in db.query(f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'): # TODO order by??
+        for row in db.execute(f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'): # TODO order by??
             try:
                 yield from _iter_events_aux_AnalyticsEvents(row=row, books=books)
             except Exception as e:
@@ -839,17 +834,18 @@ def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
         logger.warning(f'Unhandled entry of type {tp}: {row}')
 
 
-def _get_books():
+def _get_books() -> Books:
     books = Books()
     for bfile in DATABASES:
-        # TODO dispose?
-        db = dataset_connect_ro(bfile)
-        for b, _ in _load_books(db):
-            books.add(b)
+        with sqlite_connection(bfile, immutable=True, row_factory='row') as db:
+            for b, _ in _load_books(db):
+                books.add(b)
     return books
 
-def get_books():
+
+def get_books() -> List[Book]:
     return _get_books().all()
+
 
 def _iter_highlights(**kwargs) -> Iterator[Highlight]:
     logger = get_logger()
@@ -864,31 +860,31 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:
                 yielded.add(h)
 
 
-def _load_highlights(bfile: Path, books: Books):
+def _load_highlights(bfile: Path, books: Books) -> Iterator[Highlight]:
     logger = get_logger()
-    logger.info(f"Using %s for highlights", bfile)
-    db = dataset_connect_ro(bfile)
-    for bm in db.query('SELECT * FROM Bookmark'):
-        volumeid = bm['VolumeID']
-        mbook = books.by_content_id(volumeid)
-        if mbook is None:
-            # sometimes Kobo seems to recycle old books without recycling the corresponding bookmarks
-            # so we need to be a bit defensive here
-            # see https://github.com/karlicoss/kobuddy/issues/18
-            book = books.make_orphan_book(volumeid=volumeid)
-        else:
-            book = mbook
-        # todo maybe in the future it could be a matter of error policy, i.e. throw vs yield exception vs use orphan object vs ignore
-        # could be example of useful defensiveness in a provider
-        yield Highlight(bm, book=book)
+    logger.info(f"Using {bfile} for highlights")
+    with sqlite_connection(bfile, immutable=True, row_factory='row') as db:
+        for bm in db.execute('SELECT * FROM Bookmark'):
+            volumeid = bm['VolumeID']
+            mbook = books.by_content_id(volumeid)
+            if mbook is None:
+                # sometimes Kobo seems to recycle old books without recycling the corresponding bookmarks
+                # so we need to be a bit defensive here
+                # see https://github.com/karlicoss/kobuddy/issues/18
+                book = books.make_orphan_book(volumeid=volumeid)
+            else:
+                book = mbook
+            # todo maybe in the future it could be a matter of error policy, i.e. throw vs yield exception vs use orphan object vs ignore
+            # could be example of useful defensiveness in a provider
+            yield Highlight(bm, book=book)
 
 
 def _load_wordlist(bfile: Path):
     logger = get_logger()
-    logger.info(f"Using %s for highlights", bfile)
-    db = dataset_connect_ro(bfile)
-    for bm in db.query('SELECT * FROM WordList'):
-        yield bm['Text']
+    logger.info(f"Using {bfile} for wordlist")
+    with sqlite_connection(bfile, immutable=True, row_factory='row') as db:
+        for bm in db.execute('SELECT * FROM WordList'):
+            yield bm['Text']
 
 
 def get_highlights(**kwargs) -> List[Highlight]:
@@ -971,6 +967,7 @@ def _event_key(evt):
         tie_breaker = 2
     return (evt.dt, tie_breaker)
 
+
 class BookEvents:
     def __init__(self, book: Book, events):
         assert all(e.book == book for e in events)
@@ -1011,10 +1008,12 @@ def get_books_with_events(**kwargs) -> Sequence[Res[BookEvents]]:
     vit = sorted(vit, key=lambda be: be.last)
     return list(chain(vit, eit))
 
+
 def _fmt_dt(dt: datetime) -> str:
     return dt.strftime('%d %b %Y %H:%M')
 
-def print_progress(full=True, **kwargs):
+
+def print_progress(full=True, **kwargs) -> None:
     logger = get_logger()
     for bevents in get_books_with_events(**kwargs):
         if isinstance(bevents, Exception):
@@ -1032,12 +1031,12 @@ def print_progress(full=True, **kwargs):
                 print(f"-- {_fmt_dt(e.dt)}: {e.summary}")
 
 
-def print_books():
+def print_books() -> None:
     for b in get_books():
         print(b)
 
 
-def print_annotations():
+def print_annotations() -> None:
     for i in get_highlights():
         h = f"""
 {_fmt_dt(i.dt)} {i._book}

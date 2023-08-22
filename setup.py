@@ -28,7 +28,7 @@ def main() -> None:
         author_email='karlicoss@gmail.com',
         description='Backup and extract data from your Kobo reader',
 
-        install_requires=['pytz', 'dataset'],
+        install_requires=['pytz'],
         extras_require={
             'testing': ['pytest'],
             'linting': ['pytest', 'mypy', 'lxml', 'types-pytz'],
