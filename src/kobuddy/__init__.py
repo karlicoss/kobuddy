@@ -13,14 +13,12 @@ import shutil
 import struct
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import typing
 from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
                     Tuple, Union, Iterable, Any)
-
-import pytz
 
 from .common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext, Res, sorted_res, split_res
 from .kobo_device import get_kobo_mountpoint
@@ -130,13 +128,13 @@ def _parse_utcdt(s: Optional[str]) -> Optional[datetime]:
     assert res is not None
 
     if res.tzinfo is None:
-        res = pytz.utc.localize(res)
+        res = res.replace(tzinfo=timezone.utc)
     return res
 
 
 # TODO not so sure about inheriting event..
 class Highlight(Event):
-    def __init__(self, row: Dict[str, str], book: Book):
+    def __init__(self, row: Dict[str, Any], book: Book) -> None:
         self.row = row
         self._book = book
 
@@ -256,7 +254,7 @@ class ProgressEvent(OtherEvent):
 class StartEvent(OtherEvent):
     @property
     def summary(self) -> str:
-        return f'started'
+        return 'started'
 
 class FinishedEvent(OtherEvent):
     def __init__(self, *args, time_spent_s: Optional[int]=None, **kwargs) -> None:
@@ -674,7 +672,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
             dts = []
             for _ in range(cnt):
                 ts, = consume('>5xI')
-                dt = pytz.utc.localize(datetime.utcfromtimestamp(ts))
+                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                 dts.append(dt)
             part_data = dts
         elif name == b'ViewType':
@@ -929,7 +927,7 @@ def get_events(**kwargs) -> List[Res[Event]]:
 
         k = e.dt
         if k.tzinfo is None:
-            k = k.replace(tzinfo=pytz.utc)
+            k = k.replace(tzinfo=timezone.utc)
         return (k, cls_order)
     return list(sorted_res(iter_events(**kwargs), key=kkey))
 

@@ -1,12 +1,14 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-import pytz
 
 import kobuddy
 
-def get_test_db():
-    # db = Path(__file__).absolute().parent.parent / 'KoboShelfes' / 'KoboReader.sqlite.0'
-    db = Path(__file__).absolute().parent / 'data' / 'kobo_notes' / 'input' / 'KoboReader.sqlite'
+
+def get_test_db() -> Path:
+    testdata = Path(__file__).absolute().parent.parent.parent.parent / 'testdata'
+    assert testdata.exists(), testdata
+    db = testdata / 'kobo_notes' / 'input' / 'KoboReader.sqlite'
+    assert db.exists(), db
     return db
 
 # a bit meh, but ok for now
@@ -55,7 +57,7 @@ def test_books_with_highlights():
     assert ann.kind == 'annotation'
     assert ann.text == 'He does this by finding which machine has the biggest queue of materials waiting behind it and finds a way to increase its efficiency.'
     assert ann.annotation == 'Bottleneck'
-    assert ann.dt == datetime(year=2017, month=8, day=12, hour=3, minute=49, second=13, microsecond=0, tzinfo=pytz.utc)
+    assert ann.dt == datetime(year=2017, month=8, day=12, hour=3, minute=49, second=13, microsecond=0, tzinfo=timezone.utc)
     assert ann.book.author == 'Greg McKeown'
 
     assert len(pages) == 7
