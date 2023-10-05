@@ -1,8 +1,6 @@
 from collections import OrderedDict
 from datetime import datetime
 
-import pytz
-
 import kobuddy
 from kobuddy import Highlight, Book, Books
 

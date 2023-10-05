@@ -1,0 +1,39 @@
+# see https://github.com/karlicoss/pymplate for up-to-date reference
+[project]
+dynamic = ["version"]  # version is managed by setuptools_scm
+name = "kobuddy"
+dependencies = [
+]
+
+## these need to be set if you're planning to upload to pypi
+description = "Backup and extract data from your Kobo reader"
+license = {file = "LICENSE.txt"}
+authors = [
+    {name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"},
+]
+maintainers = [
+    {name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"},
+]
+
+[project.urls]
+Homepage = "https://github.com/karlicoss/kobuddy"
+##
+
+[project.optional-dependencies]
+testing = [
+    "pytest",
+    "ruff",
+    "mypy",
+    "lxml",  # for mypy html coverage
+]
+
+[project.scripts]
+kobuddy = "kobuddy:__main__.main"
+
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+version_scheme = "python-simplified-semver"
+local_scheme = "dirty-tag"
