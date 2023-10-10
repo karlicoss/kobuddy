@@ -28,7 +28,7 @@ testing = [
 ]
 
 [project.scripts]
-kobuddy = "kobuddy:__main__.main"
+kobuddy = "kobuddy.__main__:main"
 
 [build-system]
 requires = ["setuptools", "setuptools-scm"]
