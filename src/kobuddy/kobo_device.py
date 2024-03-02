@@ -19,6 +19,7 @@ def get_kobo_mountpoint(label: str='KOBOeReader') -> Optional[Path]:
                 kobos.append(mp)
             mps = d.get('mountpoints')
             if mps is not None:
+                assert all(p is not None for p in mps), (mps, d)
                 kobos.extend(mps)
     else:
         output = subprocess.check_output(('df', '-Hl')).decode('utf8')
