@@ -6,38 +6,55 @@ It gives you access to books, annotations, progress events and more!
 Tested on Kobo Aura One, however database format shouldn't be different on other devices.
 I'll happily accept PRs if you find any issues or want to help with reverse engineering more events.
 """
-import warnings
-from itertools import chain
+
+from __future__ import annotations
+
 import json
 import shutil
-import struct
 import sqlite3
-from contextlib import contextmanager
+import struct
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import cached_property
+from itertools import chain
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-import typing
-from typing import (Dict, Iterator, List, NamedTuple, Optional, Sequence, Set,
-                    Tuple, Union, Iterable, Any)
+from typing import (
+    Any,
+    Optional,
+    Protocol,
+)
 
-from .common import get_logger, unwrap, cproperty, group_by_key, the, nullcontext, Res, sorted_res, split_res
+from .common import (
+    Res,
+    get_logger,
+    group_by_key,
+    sorted_res,
+    split_res,
+    the,
+    unwrap,
+)
 from .kobo_device import get_kobo_mountpoint
 from .sqlite import sqlite_connection
 
-
 # a bit nasty to have a global variable here... will rewrite later
-DATABASES: List[Path] = []
+DATABASES: list[Path] = []
 
 # I use all databases to merge a unified data export since
 # e.g. if you delete book from device, hightlights/bookmarks just disappear
 
 
-def set_databases(dbp: Optional[Union[Path, str]], label='KOBOeReader'):
+def set_databases(dbp: Path | str | None, label='KOBOeReader'):
     if dbp is None:
         mount = get_kobo_mountpoint(label=label)
         if mount is None:
-            raise RuntimeError(f"Coulnd't find mounted Kobo device with label '{label}', are you sure it's connected? (perhaps try using different label?)")
+            raise RuntimeError(
+                f"Coulnd't find mounted Kobo device with label '{label}', are you sure it's connected? (perhaps try using different label?)"
+            )
         db = mount / '.kobo' / 'KoboReader.sqlite'
+
         @contextmanager
         def tmp_db():
             # hacky way to use tmp file for database..
@@ -46,6 +63,7 @@ def set_databases(dbp: Optional[Union[Path, str]], label='KOBOeReader'):
                 shutil.copy(db, tf.name)
                 DATABASES.append(Path(tf.name))
                 yield
+
         return tmp_db()
     else:
         dbp = Path(dbp)
@@ -58,8 +76,10 @@ def set_databases(dbp: Optional[Union[Path, str]], label='KOBOeReader'):
 
 ContentId = str
 
+
 # some things are only set for book parts: e.g. BookID, BookTitle
-class Book(NamedTuple):
+@dataclass(unsafe_hash=True)
+class Book:
     title: str
     author: str
     content_id: ContentId
@@ -70,21 +90,15 @@ class Book(NamedTuple):
 
     @property
     def bid(self) -> str:
-        return self.content_id # not sure but maybe it's fine...
+        return self.content_id  # not sure but maybe it's fine...
 
-
-if typing.TYPE_CHECKING:
-    # todo: since 3.8 can use from typing import Protocol everywhere
-    from typing_extensions import Protocol
-else:
-    Protocol = object
 
 # TODO not sure, is protocol really necessary here?
 # TODO maybe what we really want is parsing batch of dates? Then it's easier to guess the format.
 class Event(Protocol):
     @property
-    def dt(self) -> datetime: # TODO deprecate?
-        return self._dt # type: ignore
+    def dt(self) -> datetime:  # TODO deprecate?
+        return self._dt  # type: ignore
 
     @property
     def created(self) -> datetime:
@@ -93,30 +107,32 @@ class Event(Protocol):
     # books don't necessarily have title/author, so this is more generic..
     @property
     def book(self) -> Book:
-        return self._book # type: ignore
+        return self._book  # type: ignore
 
     @property
     def eid(self) -> str:
-        return self._eid # type: ignore
+        return self._eid  # type: ignore
         # TODO ugh. properties with fallback??
 
     @property
     def summary(self) -> str:
-        return f'event in {self.book}' # TODO exclude book from summary? and use it on site instead (need to check in timeline)
+        return f'event in {self.book}'  # TODO exclude book from summary? and use it on site instead (need to check in timeline)
 
     def __repr__(self) -> str:
         return f'{self.dt.strftime("%Y-%m-%d %H:%M:%S")}: {self.summary}'
 
-def _parse_utcdt(s: Optional[str]) -> Optional[datetime]:
+
+def _parse_utcdt(s: str | None) -> datetime | None:
     if s is None:
         return None
 
     res = None
+    # todo switch to fromisoformat after 3.10?
     if s.endswith('Z'):
-        s = s[:-1] # python can't handle it...
+        s = s[:-1]  # python can't handle it...
     for fmt in (
-            '%Y-%m-%dT%H:%M:%S',
-            '%Y-%m-%dT%H:%M:%S.%f', # contained in older database exports
+        '%Y-%m-%dT%H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S.%f',  # contained in older database exports
     ):
         try:
             res = datetime.strptime(s, fmt)
@@ -134,7 +150,7 @@ def _parse_utcdt(s: Optional[str]) -> Optional[datetime]:
 
 # TODO not so sure about inheriting event..
 class Highlight(Event):
-    def __init__(self, row: Dict[str, Any], book: Book) -> None:
+    def __init__(self, row: dict[str, Any], book: Book) -> None:
         self.row = row
         self._book = book
 
@@ -162,8 +178,8 @@ class Highlight(Event):
     # @property
     # def book(self) -> Book: # TODO FIXME should handle it carefully in kobo provider users
     #     return self.book
-        # raise RuntimeError
-        # return f'{self.title}' # TODO  by {self.author}'
+    # raise RuntimeError
+    # return f'{self.title}' # TODO  by {self.author}'
 
     # TODO ?? include text?
     @property
@@ -203,6 +219,7 @@ class Highlight(Event):
                 return 'highlight'
 
             # TODO why title??
+
     # @property
     # def title(self) -> str:
     #     return self.w.title
@@ -217,14 +234,16 @@ class Highlight(Event):
     def __hash__(self):
         return hash(self._key)
 
+
 class OtherEvent(Event):
-    def __init__(self, dt: datetime, book: Book, eid: str):
+    def __init__(self, dt: datetime, book: Book, eid: str) -> None:
         self._dt = dt
         self._book = book
         self._eid = eid
 
+
 class MiscEvent(OtherEvent):
-    def __init__(self, dt: datetime, book: Book, payload, eid: str):
+    def __init__(self, dt: datetime, book: Book, payload, eid: str) -> None:
         self._dt = dt
         self._book = book
         self._eid = eid
@@ -234,8 +253,9 @@ class MiscEvent(OtherEvent):
     def summary(self) -> str:
         return str(self.payload)
 
+
 class ProgressEvent(OtherEvent):
-    def __init__(self, *args, prog: Optional[int]=None, seconds_read: Optional[int]=None, **kwargs) -> None:
+    def __init__(self, *args, prog: int | None = None, seconds_read: int | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.prog = prog
         self.seconds_read = seconds_read
@@ -251,13 +271,16 @@ class ProgressEvent(OtherEvent):
         return 'reading' + self.verbose
 
     # TODO FIXME use progress event instead?
+
+
 class StartEvent(OtherEvent):
     @property
     def summary(self) -> str:
         return 'started'
 
+
 class FinishedEvent(OtherEvent):
-    def __init__(self, *args, time_spent_s: Optional[int]=None, **kwargs) -> None:
+    def __init__(self, *args, time_spent_s: int | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.time_spent_s = time_spent_s
 
@@ -269,6 +292,7 @@ class FinishedEvent(OtherEvent):
     def summary(self) -> str:
         tss = '' if self.time_spent_s is None else f', total time spent {self.time_spent_s // 60} mins'
         return 'finished' + tss
+
 
 class EventTypes:
     START = 'StartReadingBook'
@@ -289,10 +313,10 @@ class AnalyticsEvents:
 
 
 class Books:
-    def __init__(self, create_if_missing=False) -> None:
-        self.cid2books: Dict[str, List[Book]] = {}
-        self.isbn2books: Dict[str, List[Book]] = {}
-        self.title2books: Dict[str, List[Book]] = {}
+    def __init__(self, *, create_if_missing: bool = False) -> None:
+        self.cid2books: dict[str, list[Book]] = {}
+        self.isbn2books: dict[str, list[Book]] = {}
+        self.title2books: dict[str, list[Book]] = {}
         self.create_if_missing = create_if_missing
 
     @staticmethod
@@ -305,7 +329,7 @@ class Books:
         dct[key] = books
 
     @staticmethod
-    def _get(dct, key, *, allow_multiple: bool=False) -> Optional[Book]:
+    def _get(dct, key, *, allow_multiple: bool = False) -> Book | None:
         bb = dct.get(key, [])
         if len(bb) == 0:
             return None
@@ -315,12 +339,12 @@ class Books:
             return bb[-1]
         raise RuntimeError(f"Multiple items for {key}: {bb}")
 
-    def all(self) -> List[Book]:
+    def all(self) -> list[Book]:
         bset = set()
         for d in [self.cid2books, self.isbn2books, self.title2books]:
             for l in d.values():
                 bset.update(l)
-        return list(sorted(bset, key=lambda b: b.title))
+        return sorted(bset, key=lambda b: b.title)
 
     def make_orphan_book(self, *, volumeid: str) -> Book:
         # sometimes volumeid might be pretty cryptic, like a random uuid (e.g. for native kobo books)
@@ -339,16 +363,15 @@ class Books:
         Books._reg(self.isbn2books, book.isbn, book)
         Books._reg(self.title2books, book.title, book)
 
-    def by_content_id(self, cid: ContentId) -> Optional[Book]:
+    def by_content_id(self, cid: ContentId) -> Book | None:
         # sometimes title might get updated.. so it's possible to have same contentid with multiple titles
         return Books._get(self.cid2books, cid, allow_multiple=True)
 
-    def by_isbn(self, isbn: str) -> Optional[Book]:
+    def by_isbn(self, isbn: str) -> Book | None:
         return Books._get(self.isbn2books, isbn, allow_multiple=True)
 
-    def by_title(self, title: str) -> Optional[Book]:
+    def by_title(self, title: str) -> Book | None:
         return Books._get(self.title2books, title)
-
 
     # TODO not a great name?
     def by_dict(self, d) -> Book:
@@ -377,18 +400,20 @@ class Books:
         return res
 
 
-class Extra(NamedTuple):
+@dataclass
+class Extra:
     time_spent: int
     percent: int
     status: int
     last_read: Optional[datetime]
 
 
-def _load_books(db: sqlite3.Connection) -> List[Tuple[Book, Extra]]:
+def _load_books(db: sqlite3.Connection) -> list[tuple[Book, Extra]]:
     logger = get_logger()
-    items: List[Tuple[Book, Extra]] = []
+    items: list[tuple[Book, Extra]] = []
     books = db.execute('SELECT * FROM content WHERE ContentType=6')
     for b in books:
+        # fmt: off
         content_id = b['ContentID']
         isbn       = b['ISBN']
         title      = b['Title'].strip() # ugh. not sure about that, but sometimes helped
@@ -401,6 +426,8 @@ def _load_books(db: sqlite3.Connection) -> List[Tuple[Book, Extra]]:
         last_read  = b['DateLastRead']
 
         mimetype    = b['MimeType']
+        # fmt: on
+
         if mimetype == 'application/x-kobo-html+pocket':
             # skip Pocket articles
             continue
@@ -434,12 +461,14 @@ def _load_books(db: sqlite3.Connection) -> List[Tuple[Book, Extra]]:
 # 1012 looks like starting to read..
 # 1012/1013 -- finishing?
 class EventTbl:
+    # fmt: off
     EventType      = 'EventType'
     EventCount     = 'EventCount'
     LastOccurrence = 'LastOccurrence'
     ContentID      = 'ContentID'
     Checksum       = 'Checksum'
     ExtraData      = 'ExtraData'
+    # fmt: on
     # TODO ExtraData got some interesting blobs..
 
     class Types:
@@ -490,11 +519,11 @@ class EventTbl:
         T68 = 68
 
         # ??? from  KoboShelfes db
-        T73 = 73 # 3 of these
-        T74 = 74 # 2 of these
-        T27 = 27 # 3 of these
-        T28 = 28 # 5 of these
-        T36 = 36 # 6 of these
+        T73 = 73  # 3 of these
+        T74 = 74  # 2 of these
+        T27 = 27  # 3 of these
+        T28 = 28  # 5 of these
+        T36 = 36  # 6 of these
         #
 
 
@@ -510,13 +539,11 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
     # TODO do it if it's defensive?
     books = Books(create_if_missing=True)
 
-
     def connections():
         for fname in dbs:
             logger.info(f'processing {fname}')
             with sqlite_connection(fname, immutable=True, row_factory='row') as db:
                 yield fname, db
-
 
     for fname, db in connections():
         for b, extra in _load_books(db):
@@ -529,30 +556,36 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
                 yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=f'{b.content_id}-{fname.name}')
 
         ET = EventTbl
-        for i, row in enumerate(db.execute(f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event')): # TODO order by?
+        for i, row in enumerate(
+            db.execute(
+                f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'
+            )
+        ):  # TODO order by?
             try:
                 yield from _iter_events_aux_Event(row=row, books=books, idx=i)
             except Exception as e:
-                if   errors == 'throw':
+                if errors == 'throw':
                     raise e
                 elif errors == 'return':
                     yield e
                 else:
-                    raise AssertionError(f'errors={errors}')
+                    raise AssertionError(f'errors={errors}') from e
 
         AE = AnalyticsEvents
         # events_table = db.load_table('AnalyticsEvents')
         # TODO ugh. used to be events_table.all(), but started getting some 'Mandatory' field with a wrong schema at some point...
-        for row in db.execute(f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'): # TODO order by??
+        for row in db.execute(
+            f'SELECT {AE.Id}, {AE.Timestamp}, {AE.Type}, {AE.Attributes}, {AE.Metrics} from AnalyticsEvents'
+        ):  # TODO order by??
             try:
                 yield from _iter_events_aux_AnalyticsEvents(row=row, books=books)
             except Exception as e:
-                if   errors == 'throw':
+                if errors == 'throw':
                     raise e
                 elif errors == 'return':
                     yield e
                 else:
-                    raise AssertionError(f'errors={errors}')
+                    raise AssertionError(f'errors={errors}') from e
 
 
 # TODO FIXME remove idx
@@ -560,34 +593,43 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     logger = get_logger()
     ET = EventTbl
     ETT = ET.Types
-    tp, count, last, cid, checksum, extra_data = row[ET.EventType], row[ET.EventCount], row[ET.LastOccurrence], row[ET.ContentID], row[ET.Checksum], row[f'hex({ET.ExtraData})']
+    tp, count, last, cid, checksum, extra_data = (
+        row[ET.EventType],
+        row[ET.EventCount],
+        row[ET.LastOccurrence],
+        row[ET.ContentID],
+        row[ET.Checksum],
+        row[f'hex({ET.ExtraData})'],
+    )
     if tp in (
-            ETT.T37,
-            ETT.T7,
-            ETT.T9,
-            ETT.T1020,
-            ETT.T80,
-            ETT.T46,
+        ETT.T37,
+        ETT.T7,
+        ETT.T9,
+        ETT.T1020,
+        ETT.T80,
+        ETT.T46,
 
-            ETT.T0, ETT.T1, ETT.T6, ETT.T8, ETT.T79,
+        ETT.T0,
+        ETT.T1,
+        ETT.T6,
+        ETT.T8,
+        ETT.T79,
 
-            ETT.T1021,
-            ETT.T99999,
-            ETT.T4,
-            ETT.T68,
-            ETT.T73,
-            ETT.T74,
-            ETT.T27,
-            ETT.T28,
-            ETT.T36,
+        ETT.T1021,
+        ETT.T99999,
+        ETT.T4,
+        ETT.T68,
+        ETT.T73,
+        ETT.T74,
+        ETT.T27,
+        ETT.T28,
+        ETT.T36,
     ):
         return
 
     # TODO should assert this in 'full' mode when we rebuild from the very start...
     # assert book is not None
-    book = books.by_dict({
-        'volumeid': cid,
-    })
+    book = books.by_dict({'volumeid': cid})
     # TODO FIXME need unique uid...
     # TODO def needs tests.. need to run ignored through tests as well
     if tp not in (ETT.T3, ETT.T1021, ETT.PROGRESS_25, ETT.PROGRESS_50, ETT.PROGRESS_75, ETT.BOOK_FINISHED):
@@ -597,9 +639,9 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     blob = bytearray.fromhex(extra_data)
 
     pos = 0
-    parsed = {} # type: Dict[bytes, Any]
+    parsed: dict[bytes, Any] = {}
 
-    def context():
+    def context() -> str:
         return f'row: {row}\nblob: {blob}\n remaining: {blob[pos:]}\n parsed: {parsed}\n xxx {blob[pos:pos+30]}\n idx: {idx}\n parts: {parts}\n pos: {pos}'
 
     def consume(fmt):
@@ -612,7 +654,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         pos += sz
         return res
 
-
+    # fmt: off
     lengths = {
         b'ExtraDataSyncedCount'      : 9,
         b'PagesTurnedThisSession'    : 9,
@@ -640,8 +682,9 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         b'Paid'                      : 0,
         b'Preview'                   : 0,
     }
+    # fmt: on
 
-    parts, = consume('>I')
+    (parts,) = consume('>I')
     # ugh. apparently can't trust parts?
     # for _ in range(parts):
     while pos < len(blob):
@@ -649,14 +692,14 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         if blob[pos:].startswith(wtf):
             pos += len(wtf)
             continue
-        part_name_len, = consume('>I')
+        (part_name_len,) = consume('>I')
         if part_name_len == 0:
             break
         # sanity check...
         assert part_name_len < 1000, context()
         assert part_name_len % 2 == 0, context()
         fmt = f'>{part_name_len}s'
-        prename, = consume(fmt)
+        (prename,) = consume(fmt)
         # looks like b'\x00P\x00a\x00g\x00e\x00s'
         assert prename[::2].count(0) == part_name_len // 2, context()
         name = prename[1::2]
@@ -668,41 +711,41 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         if part_len is not None:
             part_data = consume(f'>{part_len}s')
         elif name == b'eventTimestamps':
-            cnt, = consume('>5xI')
+            (cnt,) = consume('>5xI')
             dts = []
             for _ in range(cnt):
-                ts, = consume('>5xI')
+                (ts,) = consume('>5xI')
                 dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                 dts.append(dt)
             part_data = dts
         elif name == b'ViewType':
-            vt_len, = consume('>5xI')
-            vt_body, = consume(f'>{vt_len}s')
+            (vt_len,) = consume('>5xI')
+            (vt_body,) = consume(f'>{vt_len}s')
             part_data = vt_body
         elif name == b'Monetization':
-            qqq, = consume('>5s')
+            (qqq,) = consume('>5s')
             if qqq != b'\x00\x00\x00\n\x00':
-                _, = consume('>4s') # no idea what's that..
+                (_,) = consume('>4s')  # no idea what's that..
             continue
         elif name == b'ExtraDataSyncedTimeElapsed':
-            qqq, = consume('>5s4x')
+            (qqq,) = consume('>5s4x')
             # TODO wtf???
             if qqq == b'\x00\x00\x00\n\x00':
                 consume('>2x')
             continue
         elif name == b'wordCounts':
-            vt_cnt, = consume('>5xI')
+            (vt_cnt,) = consume('>5xI')
             vt_len = vt_cnt * 9
-            vt_body, = consume(f'>{vt_len}s')
+            (vt_body,) = consume(f'>{vt_len}s')
             part_data = vt_body
         elif name == b'ContentType':
-            qqq, = consume('>4s')
+            (qqq,) = consume('>4s')
             if qqq == b'\x00\x00\x00\x00':
                 # wtf?
                 consume('>5x')
                 continue
-            vt_len, = consume('>xI')
-            vt_body, = consume(f'>{vt_len}s')
+            (vt_len,) = consume('>xI')
+            (vt_body,) = consume(f'>{vt_len}s')
             part_data = vt_body
         else:
             raise RuntimeError('Expected fixed length\n' + context())
@@ -714,7 +757,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
 
     # TODO FIXME handle remaining items
-    timestamps = parsed.get(b'eventTimestamps', []) # type: List[datetime]
+    timestamps: list[datetime] = parsed.get(b'eventTimestamps', [])
 
     for i, x in enumerate(timestamps):
         eid = checksum + "_" + str(i)
@@ -732,16 +775,17 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         else:
             yield MiscEvent(dt=x, book=book, payload='EVENT ' + str(tp), eid=eid)
 
+
 def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
     logger = get_logger()
     AE = AnalyticsEvents
     eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
-    ts = _parse_utcdt(ts) # TODO make dynamic?
+    ts = _parse_utcdt(ts)  # TODO make dynamic?
     att = json.loads(att)
     met = json.loads(met)
     if tp == EventTypes.LEAVE_CONTENT:
         book = books.by_dict(att)
-        prog = att.get('progress', None) # sometimes it doesn't actually have it (e.g. in Oceanic)
+        prog = att.get('progress', None)  # sometimes it doesn't actually have it (e.g. in Oceanic)
         secs = int(met['SecondsRead'])
         # TODO pages turned in met
         ev = ProgressEvent(
@@ -780,52 +824,52 @@ def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
             eid=eid,
         )
     elif tp in (
-            'AdobeErrorEncountered',
-            'AppSettings',
-            'AppStart',
-            'BatteryLevelAtSync',
-            'BrightnessAdjusted',
-            '/Home',
-            'HomeWidgetClicked',
-            'MainNavOption',
-            'MarkAsUnreadPrompt',
-            'OpenReadingSettingsMenu',
-            'PluggedIn',
-            'ReadingSettings',
-            'StatusBarOption',
-            'StoreBookClicked',
-            'StoreHome',
-            'Books', # not even clear what's it for
-            'ChangedSetting',
-            'AmbientLightSensorToggled',
-            'QuickTurnTriggered',
-            'ButtonSwapPreferences',
-            'SearchExecuted',
-            'Sideload',
-            'Extras',
-            'AutoColorToggled',
-            'WifiSettings',
-            'WifiToggle',
+        'AdobeErrorEncountered',
+        'AppSettings',
+        'AppStart',
+        'BatteryLevelAtSync',
+        'BrightnessAdjusted',
+        '/Home',
+        'HomeWidgetClicked',
+        'MainNavOption',
+        'MarkAsUnreadPrompt',
+        'OpenReadingSettingsMenu',
+        'PluggedIn',
+        'ReadingSettings',
+        'StatusBarOption',
+        'StoreBookClicked',
+        'StoreHome',
+        'Books',  # not even clear what's it for
+        'ChangedSetting',
+        'AmbientLightSensorToggled',
+        'QuickTurnTriggered',
+        'ButtonSwapPreferences',
+        'SearchExecuted',
+        'Sideload',
+        'Extras',
+        'AutoColorToggled',
+        'WifiSettings',
+        'WifiToggle',
     ):
-        pass # just ignore
+        pass  # just ignore
     elif tp in (
-            # This will be handled later..
-            'MarkAsFinished',
-            'CreateBookmark',
-            'CreateHighlight',
-            'CreateNote', # TODO??
+        # This will be handled later..
+        'MarkAsFinished',
+        'CreateBookmark',
+        'CreateHighlight',
+        'CreateNote',  # TODO??
     ):
         pass
     elif tp in (
-            # might handle later, but not now..
-            'DictionaryLookup',
-            'OpenContent',
-            'RemoveContent',
-            'Search',
-            'AccessLibrary',
-            'LibrarySort',
-            'TileSelected',
-            'UserMetadataUpdate',
+        # might handle later, but not now..
+        'DictionaryLookup',
+        'OpenContent',
+        'RemoveContent',
+        'Search',
+        'AccessLibrary',
+        'LibrarySort',
+        'TileSelected',
+        'UserMetadataUpdate',
     ):
         pass
     else:
@@ -841,16 +885,16 @@ def _get_books() -> Books:
     return books
 
 
-def get_books() -> List[Book]:
+def get_books() -> list[Book]:
     return _get_books().all()
 
 
-def _iter_highlights(**kwargs) -> Iterator[Highlight]:
+def _iter_highlights(**kwargs) -> Iterator[Highlight]:  # noqa: ARG001
     logger = get_logger()
     books = _get_books()
 
     # todo more_itertools?
-    yielded: Set[Highlight] = set()
+    yielded: set[Highlight] = set()
     for bfile in DATABASES:
         for h in _load_highlights(bfile, books=books):
             if h not in yielded:
@@ -885,12 +929,12 @@ def _load_wordlist(bfile: Path):
             yield bm['Text']
 
 
-def get_highlights(**kwargs) -> List[Highlight]:
-    return list(sorted(_iter_highlights(**kwargs), key=lambda h: h.created))
+def get_highlights(**kwargs) -> list[Highlight]:
+    return sorted(_iter_highlights(**kwargs), key=lambda h: h.created)
 
 
 def get_wordlist() -> Iterator[str]:
-    yielded: Set[str] = set()
+    yielded: set[str] = set()
 
     for bfile in DATABASES:
         for h in _load_wordlist(bfile):
@@ -901,11 +945,12 @@ def get_wordlist() -> Iterator[str]:
 
 # TODO Activity -- sort of interesting (e.g RecentBook). wonder what is Action (it's always 2)
 
+
 # TODO not sure if need to be exposed
 def iter_events(**kwargs) -> Iterator[Res[Event]]:
     yield from _iter_highlights(**kwargs)
 
-    seen: Set[Tuple] = set()
+    seen: set[tuple] = set()
     for x in _iter_events_aux(**kwargs):
         if isinstance(x, Exception):
             yield x
@@ -915,8 +960,9 @@ def iter_events(**kwargs) -> Iterator[Res[Event]]:
             seen.add(kk)
             yield x
 
+
 # TODO is this even used apart from tests??
-def get_events(**kwargs) -> List[Res[Event]]:
+def get_events(**kwargs) -> list[Res[Event]]:
     def kkey(e):
         cls_order = 0
         if isinstance(e, ProgressEvent):
@@ -929,33 +975,36 @@ def get_events(**kwargs) -> List[Res[Event]]:
         if k.tzinfo is None:
             k = k.replace(tzinfo=timezone.utc)
         return (k, cls_order)
+
     return list(sorted_res(iter_events(**kwargs), key=kkey))
 
 
-class BookWithHighlights(NamedTuple):
+@dataclass
+class BookWithHighlights:
     highlights: Sequence[Highlight]
 
-    @cproperty
-    def book(self) -> Book: # TODO is gonna be used outside..
+    @cached_property
+    def book(self) -> Book:  # TODO is gonna be used outside..
         return the(h.book for h in self.highlights)
 
-    @cproperty
+    @cached_property
     def dt(self) -> datetime:
         # makes more sense to move 'last modified' pages to the end
         return max(h.dt for h in self.highlights)
 
 
-def get_books_with_highlights(**kwargs) -> List[BookWithHighlights]:
+def get_books_with_highlights(**kwargs) -> list[BookWithHighlights]:
     highlights = get_highlights(**kwargs)
     grouped = group_by_key(highlights, key=lambda e: e.book)
     res = []
-    for book, group in grouped.items():
+    for group in grouped.values():
         sgroup = tuple(sorted(group, key=lambda e: e.created))
         res.append(BookWithHighlights(highlights=sgroup))
-    return list(sorted(res, key=lambda p: p.dt))
+    return sorted(res, key=lambda p: p.dt)
 
 
 # TODO need to merge 'progress' and 'left'
+
 
 def _event_key(evt):
     tie_breaker = 0
@@ -967,20 +1016,20 @@ def _event_key(evt):
 
 
 class BookEvents:
-    def __init__(self, book: Book, events):
+    def __init__(self, book: Book, events) -> None:
         assert all(e.book == book for e in events)
         self.book = book
-        self.events = list(sorted(events, key=_event_key))
+        self.events = sorted(events, key=_event_key)
 
     @property
-    def started(self) -> Optional[datetime]:
+    def started(self) -> datetime | None:
         for e in self.events:
             if isinstance(e, ProgressEvent):
                 return e.dt
         return None
 
     @property
-    def finished(self) -> Optional[datetime]:
+    def finished(self) -> datetime | None:
         for e in reversed(self.events):
             if isinstance(e, FinishedEvent):
                 return e.dt
@@ -1011,15 +1060,15 @@ def _fmt_dt(dt: datetime) -> str:
     return dt.strftime('%d %b %Y %H:%M')
 
 
-def print_progress(full=True, **kwargs) -> None:
+def print_progress(*, full: bool = True, **kwargs) -> None:
     logger = get_logger()
     for bevents in get_books_with_events(**kwargs):
         if isinstance(bevents, Exception):
             logger.exception(bevents)
             continue
         print()
-        sts = None if bevents.started is None else _fmt_dt(bevents.started) # weird but sometimes it is None..
-        fns = '' if bevents.finished  is None else _fmt_dt(bevents.finished)
+        sts = None if bevents.started is None else _fmt_dt(bevents.started)  # weird but sometimes it is None..
+        fns = '' if bevents.finished is None else _fmt_dt(bevents.finished)
         print(bevents.book)
         # TODO hmm, f-strings not gonna work in py 3.5
         print(f'Started : {sts}')
@@ -1040,7 +1089,9 @@ def print_annotations() -> None:
 {_fmt_dt(i.dt)} {i._book}
     {i.text}
         {i.annotation}
-""".strip('\n')
+""".strip(
+            '\n'
+        )
         print(h)
         print("------")
 

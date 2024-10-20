@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import argparse
-import sys
-from pathlib import Path
-from datetime import datetime
 import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
 
 from .kobo_device import get_kobo_mountpoint
 
