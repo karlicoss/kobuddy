@@ -681,6 +681,11 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         b'Sideloaded'                : 0,
         b'Paid'                      : 0,
         b'Preview'                   : 0,
+
+        b'Orientation'               : 5,
+        b'Portrait'                  : 0,
+        b'Landscape'                 : 0,
+        b'ButtonPressCount'          : 9,
     }
     # fmt: on
 
