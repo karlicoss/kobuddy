@@ -1,11 +1,12 @@
+from __future__ import annotations
+
 import json
-from pathlib import Path
 import shutil
 import subprocess
-from typing import Optional
+from pathlib import Path
 
 
-def get_kobo_mountpoint(label: str='KOBOeReader') -> Optional[Path]:
+def get_kobo_mountpoint(label: str = 'KOBOeReader') -> Path | None:
     has_lsblk = shutil.which('lsblk')
     if has_lsblk:  # on Linux
         xxx = subprocess.check_output(['lsblk', '-f', '--json']).decode('utf8')
@@ -28,7 +29,7 @@ def get_kobo_mountpoint(label: str='KOBOeReader') -> Optional[Path]:
 
     if len(kobos) > 1:
         raise RuntimeError(f'Multiple Kobo devices detected: {kobos}')
-    elif len(kobos) == 0:
+    if len(kobos) == 0:
         return None
     else:
         [kobo] = kobos

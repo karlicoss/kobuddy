@@ -1,9 +1,11 @@
 # copy from HPI:my/core/sqlite.py
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-import sqlite3
-from typing import Callable, Any, Union, Literal, Optional, Iterator
-
+from typing import Any, Callable, Literal, Union
 
 PathIsh = Union[Path, str]
 
@@ -13,13 +15,14 @@ SqliteRowFactory = Callable[[sqlite3.Cursor, sqlite3.Row], Any]
 
 def dict_factory(cursor, row):
     fields = [column[0] for column in cursor.description]
-    return {key: value for key, value in zip(fields, row)}
+    return dict(zip(fields, row))
 
 
 Factory = Union[SqliteRowFactory, Literal['row', 'dict']]
 
+
 @contextmanager
-def sqlite_connection(db: PathIsh, *, immutable: bool=False, row_factory: Optional[Factory]=None) -> Iterator[sqlite3.Connection]:
+def sqlite_connection(db: PathIsh, *, immutable: bool = False, row_factory: Factory | None = None) -> Iterator[sqlite3.Connection]:
     dbp = f'file:{db}'
     # https://www.sqlite.org/draft/uri.html#uriimmutable
     if immutable:

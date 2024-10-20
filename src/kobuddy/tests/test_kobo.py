@@ -11,34 +11,40 @@ def get_test_db() -> Path:
     assert db.exists(), db
     return db
 
+
 # a bit meh, but ok for now
 kobuddy.set_databases(get_test_db())
 
-from kobuddy import _iter_events_aux, get_events, get_books_with_highlights, _iter_highlights
+from kobuddy import (
+    _iter_events_aux,
+    _iter_highlights,
+    get_books_with_highlights,
+    get_events,
+)
 
 
-def test_events():
+def test_events() -> None:
     for e in _iter_events_aux():
         print(e)
 
 
-def test_hls():
+def test_hls() -> None:
     for h in _iter_highlights():
         print(h)
 
 
-def test_get_all():
+def test_get_all() -> None:
     events = get_events()
     assert len(events) > 50
     for d in events:
         print(d)
 
 
-def test_books_with_highlights():
+def test_books_with_highlights() -> None:
     pages = get_books_with_highlights()
 
     g = pages[0]
-    assert 'Essentialism' in g.book
+    assert 'Essentialism' in g.book.title
     hls = g.highlights
     assert len(hls) == 273
 
@@ -55,7 +61,10 @@ def test_books_with_highlights():
 
     assert ann.eid == 'eb264817-9a06-42fd-92ff-7bd38cd9ca79'
     assert ann.kind == 'annotation'
-    assert ann.text == 'He does this by finding which machine has the biggest queue of materials waiting behind it and finds a way to increase its efficiency.'
+    assert (
+        ann.text
+        == 'He does this by finding which machine has the biggest queue of materials waiting behind it and finds a way to increase its efficiency.'
+    )
     assert ann.annotation == 'Bottleneck'
     assert ann.dt == datetime(year=2017, month=8, day=12, hour=3, minute=49, second=13, microsecond=0, tzinfo=timezone.utc)
     assert ann.book.author == 'Greg McKeown'
@@ -63,11 +72,13 @@ def test_books_with_highlights():
     assert len(pages) == 7
 
 
-def test_history():
+def test_history() -> None:
     kobuddy.print_progress()
 
-def test_annotations():
+
+def test_annotations() -> None:
     kobuddy.print_annotations()
 
-def test_books():
+
+def test_books() -> None:
     kobuddy.print_books()

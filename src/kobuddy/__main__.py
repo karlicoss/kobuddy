@@ -1,12 +1,20 @@
-#!/usr/bin/env python3
-import logging
 import argparse
+import logging
 from pathlib import Path
 
-from kobuddy import set_databases, print_progress, print_books, print_annotations, print_wordlist, get_logger
+from kobuddy import (
+    get_logger,
+    print_annotations,
+    print_books,
+    print_progress,
+    print_wordlist,
+    set_databases,
+)
 
-def setup_logger(logger, level=None, format=None, datefmt=None):
+
+def setup_logger(logger, level=None, format=None, datefmt=None) -> None:  # noqa: A002
     import logging
+
     old_root = logging.root
     try:
         logging.root = logger
@@ -19,11 +27,10 @@ def setup_logger(logger, level=None, format=None, datefmt=None):
         logging.root = old_root
 
 
-def main():
-    # TODO FIXME need to use proper timzone..
+def main() -> None:
+    # TODO FIXME need to use proper timezone..
     logger = get_logger()
     setup_logger(logger, level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 
     Fmt = lambda prog: argparse.RawTextHelpFormatter(prog, width=100)
     p = argparse.ArgumentParser(
@@ -49,8 +56,11 @@ You can run it via cron, for example every minute. When you connect your device 
 : * * * * * kobuddy backup /path/to/backups/kobo/
 
 Alternatively, you can add a udev rule or something similar.
-''', formatter_class=Fmt)
+''',
+        formatter_class=Fmt,
+    )
     import kobuddy.backup
+
     kobuddy.backup.setup_parser(bp)
 
     args = p.parse_args()
