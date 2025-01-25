@@ -33,6 +33,7 @@ lint.extend-select = [
     "PTH",  # pathlib migration
     "ARG",  # unused argument checks
     "A",    # builtin shadowing
+    "G",    # logging stuff
     # "EM",  # TODO hmm could be helpful to prevent duplicate err msg in traceback.. but kinda annoying
 
     # "ALL", # uncomment this to check for new rules!
@@ -116,7 +117,6 @@ lint.ignore = [
     "PLW0603",  # global variable update.. we usually know why we are doing this
     "PLW2901",  # for loop variable overwritten, usually this is intentional
 
-    "PT004",  # deprecated rule, will be removed later
     "PT011",  # pytest raises should is too broad
     "PT012",  # pytest raises should contain a single statement
 

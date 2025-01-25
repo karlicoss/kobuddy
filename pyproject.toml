@@ -4,7 +4,7 @@ dynamic = ["version"]  # version is managed by setuptools_scm
 name = "kobuddy"
 dependencies = [
 ]
-requires-python = ">= 3.9"
+requires-python = ">=3.9"
 
 ## these need to be set if you're planning to upload to pypi
 description = "Backup and extract data from your Kobo reader"
@@ -20,7 +20,9 @@ maintainers = [
 Homepage = "https://github.com/karlicoss/kobuddy"
 ##
 
+
 [project.optional-dependencies]
+[dependency-groups]
 testing = [
     "pytest",
     "ruff",
@@ -38,3 +40,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools_scm]
 version_scheme = "python-simplified-semver"
 local_scheme = "dirty-tag"
+
+# workaround for error during uv publishing
+# see https://github.com/astral-sh/uv/issues/9513#issuecomment-2519527822
+[tool.setuptools]
+license-files = []
