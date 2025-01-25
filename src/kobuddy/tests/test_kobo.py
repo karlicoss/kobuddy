@@ -57,7 +57,7 @@ def test_books_with_highlights() -> None:
     assert hls[0].kind == 'highlight'
     # TODO assert highlights got no annotation? not sure if it's even necessary to distinguish..
 
-    [ann] = [h for h in hls if h.annotation is not None and len(h.annotation) > 0]
+    [ann] = [h for h in hls if len(h.annotation) > 0]
 
     assert ann.eid == 'eb264817-9a06-42fd-92ff-7bd38cd9ca79'
     assert ann.kind == 'annotation'

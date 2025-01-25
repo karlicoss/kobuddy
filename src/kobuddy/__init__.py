@@ -98,7 +98,7 @@ class Book:
 class Event(Protocol):
     @property
     def dt(self) -> datetime:  # TODO deprecate?
-        return self._dt  # type: ignore
+        return self._dt  # type: ignore[attr-defined]
 
     @property
     def created(self) -> datetime:
@@ -107,11 +107,11 @@ class Event(Protocol):
     # books don't necessarily have title/author, so this is more generic..
     @property
     def book(self) -> Book:
-        return self._book  # type: ignore
+        return self._book  # type: ignore[attr-defined]
 
     @property
     def eid(self) -> str:
-        return self._eid  # type: ignore
+        return self._eid  # type: ignore[attr-defined]
         # TODO ugh. properties with fallback??
 
     @property
@@ -128,8 +128,7 @@ def _parse_utcdt(s: str | None) -> datetime | None:
 
     res = None
     # todo switch to fromisoformat after 3.10?
-    if s.endswith('Z'):
-        s = s[:-1]  # python can't handle it...
+    s = s.removesuffix('Z')  # python can't handle it...
     for fmt in (
         '%Y-%m-%dT%H:%M:%S',
         '%Y-%m-%dT%H:%M:%S.%f',  # contained in older database exports
