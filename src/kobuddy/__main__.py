@@ -39,18 +39,31 @@ Library to parse and provide Python interface for your Kobo reader
 """,
         formatter_class=Fmt,
     )
-    p.add_argument('--db', type=Path, help='''
+    p.add_argument(
+        '--db',
+        type=Path,
+        help='''
 By default will try to read the database from your Kobo device.
 If you pass a directory, will try to use all Kobo databases it can find.
-    ''', required=False)
-    p.add_argument('--errors', choices=['throw', 'return'], default='throw', help="throw: raise on errors immediately; return: handle defensively long as possible and reasonable")
+    ''',
+        required=False,
+    )
+    p.add_argument(
+        '--errors',
+        choices=['throw', 'return'],
+        default='throw',
+        help="throw: raise on errors immediately; return: handle defensively long as possible and reasonable",
+    )
     p.add_argument('--label', default='KOBOeReader', help="device label (check lsblk if default doesn't work)")
     sp = p.add_subparsers(dest='mode')
-    sp.add_parser('books'      , help='print all books')
-    sp.add_parser('progress'   , help='print all book reading progress')
+    sp.add_parser('books', help='print all books')
+    sp.add_parser('progress', help='print all book reading progress')
     sp.add_parser('annotations', help='print all annotations (bookmarks/highlights/comments)')
-    sp.add_parser('wordlist'   , help='print all words from the wordlist')
-    bp = sp.add_parser('backup', help='backup the database from your Kobo device', description='''
+    sp.add_parser('wordlist', help='print all words from the wordlist')
+    bp = sp.add_parser(
+        'backup',
+        help='backup the database from your Kobo device',
+        description='''
 You can run it via cron, for example every minute. When you connect your device via USB, the database will be backed up.
 
 : * * * * * kobuddy backup /path/to/backups/kobo/
