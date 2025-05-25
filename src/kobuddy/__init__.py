@@ -408,7 +408,6 @@ class Extra:
 
 
 def _load_books(db: sqlite3.Connection) -> list[tuple[Book, Extra]]:
-    logger = get_logger()
     items: list[tuple[Book, Extra]] = []
     books = db.execute('SELECT * FROM content WHERE ContentType=6')
     for b in books:
@@ -592,7 +591,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     logger = get_logger()
     ET = EventTbl
     ETT = ET.Types
-    tp, count, last, cid, checksum, extra_data = (
+    tp, _count, _last, cid, checksum, extra_data = (
         row[ET.EventType],
         row[ET.EventCount],
         row[ET.LastOccurrence],
@@ -607,13 +606,13 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         ETT.T1020,
         ETT.T80,
         ETT.T46,
-
+        #
         ETT.T0,
         ETT.T1,
         ETT.T6,
         ETT.T8,
         ETT.T79,
-
+        #
         ETT.T1021,
         ETT.T99999,
         ETT.T4,
@@ -641,7 +640,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     parsed: dict[bytes, Any] = {}
 
     def context() -> str:
-        return f'row: {row}\nblob: {blob}\n remaining: {blob[pos:]}\n parsed: {parsed}\n xxx {blob[pos:pos+30]}\n idx: {idx}\n parts: {parts}\n pos: {pos}'
+        return f'row: {row}\nblob: {blob}\n remaining: {blob[pos:]}\n parsed: {parsed}\n xxx {blob[pos : pos + 30]}\n idx: {idx}\n parts: {parts}\n pos: {pos}'
 
     def consume(fmt):
         nonlocal pos
@@ -894,7 +893,6 @@ def get_books() -> list[Book]:
 
 
 def _iter_highlights(**kwargs) -> Iterator[Highlight]:  # noqa: ARG001
-    logger = get_logger()
     books = _get_books()
 
     # todo more_itertools?
@@ -1093,9 +1091,7 @@ def print_annotations() -> None:
 {_fmt_dt(i.dt)} {i._book}
     {i.text}
         {i.annotation}
-""".strip(
-            '\n'
-        )
+""".strip('\n')
         print(h)
         print("------")
 
