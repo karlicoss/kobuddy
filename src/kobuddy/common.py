@@ -4,6 +4,7 @@ import logging
 from collections.abc import Iterable, Iterator
 from itertools import tee
 from typing import (
+    Any,
     Callable,
     TypeVar,
     Union,
@@ -43,7 +44,7 @@ def group_by_key(l: Iterable[T], key: Callable[[T], K]) -> dict[K, list[T]]:
     res: dict[K, list[T]] = {}
     for i in l:
         kk = key(i)
-        lst = res.get(kk, [])
+        lst: list[T] = res.get(kk, [])
         lst.append(i)
         res[kk] = lst
     return res
@@ -71,7 +72,7 @@ def split_res(it: Iterable[Res[V]]) -> tuple[Iterator[V], Iterator[Exception]]:
 
 
 # TODO not sure if should keep it...
-def sorted_res(it: Iterable[Res[V]], key) -> Iterator[Res[V]]:
+def sorted_res(it: Iterable[Res[V]], key: Callable[[V], Any]) -> Iterator[Res[V]]:
     vit, eit = split_res(it)
     yield from sorted(vit, key=key)
     yield from eit

@@ -14,7 +14,7 @@ import shutil
 import sqlite3
 import struct
 from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import cached_property
@@ -46,7 +46,7 @@ DATABASES: list[Path] = []
 # e.g. if you delete book from device, hightlights/bookmarks just disappear
 
 
-def set_databases(dbp: Path | str | None, label='KOBOeReader'):
+def set_databases(dbp: Path | str | None, label: str = 'KOBOeReader') -> AbstractContextManager:
     if dbp is None:
         mount = get_kobo_mountpoint(label=label)
         if mount is None:
@@ -85,7 +85,7 @@ class Book:
     content_id: ContentId
     isbn: str
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'{self.title} by {self.author}'
 
     @property
@@ -224,13 +224,13 @@ class Highlight(Event):
     #     return self.w.title
 
     @property
-    def _key(self):
+    def _key(self) -> tuple[datetime, str | None, str]:
         return (self.dt, self.text, self.annotation)
 
-    def __eq__(self, o):
+    def __eq__(self, o) -> bool:
         return self._key == o._key
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self._key)
 
 
@@ -242,7 +242,7 @@ class OtherEvent(Event):
 
 
 class MiscEvent(OtherEvent):
-    def __init__(self, dt: datetime, book: Book, payload, eid: str) -> None:
+    def __init__(self, dt: datetime, book: Book, payload: str, eid: str) -> None:
         self._dt = dt
         self._book = book
         self._eid = eid
@@ -319,7 +319,7 @@ class Books:
         self.create_if_missing = create_if_missing
 
     @staticmethod
-    def _reg(dct, key, book):
+    def _reg(dct, key, book: Book) -> None:
         books = dct.get(key, [])
         present = any((b.title, b.author) == (book.title, book.author) for b in books)
         if not present:
@@ -373,7 +373,7 @@ class Books:
         return Books._get(self.title2books, title)
 
     # TODO not a great name?
-    def by_dict(self, d) -> Book:
+    def by_dict(self, d: dict[str, Any]) -> Book:
         vid = d.get('volumeid', None)
         isbn = d.get('isbn', None)
         # 20181021, volumeid and isbn are not present for StartReadingBook
@@ -526,7 +526,7 @@ class EventTbl:
 
 
 # TODO use literal mypy types?
-def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
+def _iter_events_aux(limit: int | None = None, errors: str = 'throw') -> Iterator[Res[Event]]:
     # TODO handle all_ here?
     logger = get_logger()
     dbs = DATABASES
@@ -587,10 +587,11 @@ def _iter_events_aux(limit=None, errors='throw') -> Iterator[Res[Event]]:
 
 
 # TODO FIXME remove idx
-def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
+def _iter_events_aux_Event(*, row, books: Books, idx: int = 0) -> Iterator[Event]:
     logger = get_logger()
     ET = EventTbl
     ETT = ET.Types
+    checksum: str
     tp, _count, _last, cid, checksum, extra_data = (
         row[ET.EventType],
         row[ET.EventCount],
@@ -642,7 +643,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
     def context() -> str:
         return f'row: {row}\nblob: {blob}\n remaining: {blob[pos:]}\n parsed: {parsed}\n xxx {blob[pos : pos + 30]}\n idx: {idx}\n parts: {parts}\n pos: {pos}'
 
-    def consume(fmt):
+    def consume(fmt: str) -> Sequence[Any]:
         nonlocal pos
         sz = struct.calcsize(fmt)
         try:
@@ -695,6 +696,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         if blob[pos:].startswith(wtf):
             pos += len(wtf)
             continue
+        part_name_len: int
         (part_name_len,) = consume('>I')
         if part_name_len == 0:
             break
@@ -702,30 +704,36 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
         assert part_name_len < 1000, context()
         assert part_name_len % 2 == 0, context()
         fmt = f'>{part_name_len}s'
+        prename: bytes
         (prename,) = consume(fmt)
         # looks like b'\x00P\x00a\x00g\x00e\x00s'
         assert prename[::2].count(0) == part_name_len // 2, context()
         name = prename[1::2]
 
         if name not in lengths:
-            raise RuntimeError(f'Unexpected event kind: {name}\n' + context())
+            raise RuntimeError(f'Unexpected event kind: {name!r}\n' + context())
         part_len = lengths[name]
 
         if part_len is not None:
             part_data = consume(f'>{part_len}s')
         elif name == b'eventTimestamps':
+            cnt: int
             (cnt,) = consume('>5xI')
             dts = []
             for _ in range(cnt):
+                ts: int
                 (ts,) = consume('>5xI')
                 dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                 dts.append(dt)
             part_data = dts
         elif name == b'ViewType':
+            vt_len: int
             (vt_len,) = consume('>5xI')
+            vt_body: bytes
             (vt_body,) = consume(f'>{vt_len}s')
             part_data = vt_body
         elif name == b'Monetization':
+            qqq: bytes
             (qqq,) = consume('>5s')
             if qqq != b'\x00\x00\x00\n\x00':
                 (_,) = consume('>4s')  # no idea what's that..
@@ -737,6 +745,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx=0) -> Iterator[Event]:
                 consume('>2x')
             continue
         elif name == b'wordCounts':
+            vt_cnt: int
             (vt_cnt,) = consume('>5xI')
             vt_len = vt_cnt * 9
             (vt_body,) = consume(f'>{vt_len}s')
