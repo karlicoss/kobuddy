@@ -804,6 +804,7 @@ def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
             logger.debug("skipping %s, it's too short", ev)
     elif tp == EventTypes.START:
         book = books.by_dict(att)
+        assert ts is not None
         yield StartEvent(
             dt=ts,
             book=book,
