@@ -13,7 +13,7 @@ PathIsh = Union[Path, str]
 SqliteRowFactory = Callable[[sqlite3.Cursor, sqlite3.Row], Any]
 
 
-def dict_factory(cursor, row):
+def dict_factory(cursor: sqlite3.Cursor, row: sqlite3.Row) -> dict[str, Any]:
     fields = [column[0] for column in cursor.description]
     return dict(zip(fields, row))
 

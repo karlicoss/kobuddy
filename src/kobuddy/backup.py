@@ -8,8 +8,8 @@ from pathlib import Path
 from .kobo_device import get_kobo_mountpoint
 
 
-def run(args):
-    target = args.path
+def run(args: argparse.Namespace) -> None:
+    target: Path = args.path
     if target.is_dir():
         today = datetime.now().strftime('%Y%m%d')
         # TODO a bit meh...
@@ -21,7 +21,8 @@ def run(args):
         # TODO log??
         return
 
-    mount = get_kobo_mountpoint(label=args.label)
+    label: str = args.label
+    mount = get_kobo_mountpoint(label=label)
     if mount is None:
         return
 
@@ -34,12 +35,12 @@ def run(args):
     tmp.rename(target)
 
 
-def setup_parser(p):
+def setup_parser(p: argparse.ArgumentParser) -> None:
     p.add_argument('--label', default='KOBOeReader', help="device label (check lsblk if default doesn't work)")
     p.add_argument('path', type=Path, help='target directory or file to dump the database')
 
 
-def main():
+def main() -> None:
     p = argparse.ArgumentParser()
     setup_parser(p)
     args = p.parse_args()
