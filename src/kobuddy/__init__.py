@@ -16,16 +16,12 @@ import struct
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import cached_property
 from itertools import chain
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import (
-    Any,
-    Optional,
-    Protocol,
-)
+from typing import Any, Protocol
 
 from .common import (
     Res,
@@ -143,7 +139,7 @@ def _parse_utcdt(s: str | None) -> datetime | None:
     assert res is not None
 
     if res.tzinfo is None:
-        res = res.replace(tzinfo=timezone.utc)
+        res = res.replace(tzinfo=UTC)
     return res
 
 
@@ -187,7 +183,7 @@ class Highlight(Event):
 
     # this is what's actually hightlighted
     @property
-    def text(self) -> Optional[str]:
+    def text(self) -> str | None:
         """
         Highlighted text in the book
         """
@@ -374,10 +370,10 @@ class Books:
 
     # TODO not a great name?
     def by_dict(self, d: dict[str, Any]) -> Book:
-        vid = d.get('volumeid', None)
-        isbn = d.get('isbn', None)
+        vid = d.get('volumeid')
+        isbn = d.get('isbn')
         # 20181021, volumeid and isbn are not present for StartReadingBook
-        title = d.get('title', None)
+        title = d.get('title')
         res = None
         if vid is not None:
             res = self.by_content_id(vid)
@@ -404,7 +400,7 @@ class Extra:
     time_spent: int
     percent: int
     status: int
-    last_read: Optional[datetime]
+    last_read: datetime | None
 
 
 def _load_books(db: sqlite3.Connection) -> list[tuple[Book, Extra]]:
@@ -418,7 +414,7 @@ def _load_books(db: sqlite3.Connection) -> list[tuple[Book, Extra]]:
         author     = b['Attribution']
 
         # TODO not so sure about that; it was the case for KoboShelfes databases
-        time_spent = 0 if 'TimeSpentReading' not in b.keys() else b['TimeSpentReading']
+        time_spent = 0 if 'TimeSpentReading' not in b else b['TimeSpentReading']  # noqa: SIM401
         percent    = b['___PercentRead']
         status     = int(b['ReadStatus'])
         last_read  = b['DateLastRead']
@@ -723,7 +719,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx: int = 0) -> Iterator[Event
             for _ in range(cnt):
                 ts: int
                 (ts,) = consume('>5xI')
-                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                dt = datetime.fromtimestamp(ts, tz=UTC)
                 dts.append(dt)
             part_data = dts
         elif name == b'ViewType':
@@ -865,7 +861,7 @@ def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
         'WifiToggle',
     ):
         pass  # just ignore
-    elif tp in (
+    elif tp in (  # noqa: SIM114
         # This will be handled later..
         'MarkAsFinished',
         'CreateBookmark',
@@ -985,7 +981,7 @@ def get_events(**kwargs) -> list[Res[Event]]:
 
         k = e.dt
         if k.tzinfo is None:
-            k = k.replace(tzinfo=timezone.utc)
+            k = k.replace(tzinfo=UTC)
         return (k, cls_order)
 
     return list(sorted_res(iter_events(**kwargs), key=kkey))

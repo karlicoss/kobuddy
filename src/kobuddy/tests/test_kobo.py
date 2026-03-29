@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import kobuddy
@@ -66,7 +66,7 @@ def test_books_with_highlights() -> None:
         == 'He does this by finding which machine has the biggest queue of materials waiting behind it and finds a way to increase its efficiency.'
     )
     assert ann.annotation == 'Bottleneck'
-    assert ann.dt == datetime(year=2017, month=8, day=12, hour=3, minute=49, second=13, microsecond=0, tzinfo=timezone.utc)
+    assert ann.dt == datetime(year=2017, month=8, day=12, hour=3, minute=49, second=13, microsecond=0, tzinfo=UTC)
     assert ann.book.author == 'Greg McKeown'
 
     assert len(pages) == 7
