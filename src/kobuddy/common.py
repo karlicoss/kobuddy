@@ -1,33 +1,22 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from itertools import tee
-from typing import (
-    Any,
-    Callable,
-    TypeVar,
-    Union,
-)
+from typing import Any
 
 
 def get_logger() -> logging.Logger:
     return logging.getLogger('kobuddy')
 
 
-T = TypeVar('T')
-
-
-def unwrap(x: T | None) -> T:
+def unwrap[T](x: T | None) -> T:
     assert x is not None
     return x
 
 
-A = TypeVar('A')
-
-
 # TODO switch to more_itertools?
-def the(l: Iterable[A]) -> A:
+def the[A](l: Iterable[A]) -> A:
     it = iter(l)
     try:
         first = next(it)
@@ -37,10 +26,7 @@ def the(l: Iterable[A]) -> A:
     return first
 
 
-K = TypeVar('K')
-
-
-def group_by_key(l: Iterable[T], key: Callable[[T], K]) -> dict[K, list[T]]:
+def group_by_key[T, K](l: Iterable[T], key: Callable[[T], K]) -> dict[K, list[T]]:
     res: dict[K, list[T]] = {}
     for i in l:
         kk = key(i)
@@ -50,12 +36,11 @@ def group_by_key(l: Iterable[T], key: Callable[[T], K]) -> dict[K, list[T]]:
     return res
 
 
-V = TypeVar('V', covariant=True)  # noqa: PLC0105
-Res = Union[V, Exception]
+type Res[V] = V | Exception
 
 
 # TODO better name?
-def split_res(it: Iterable[Res[V]]) -> tuple[Iterator[V], Iterator[Exception]]:
+def split_res[V](it: Iterable[Res[V]]) -> tuple[Iterator[V], Iterator[Exception]]:
     vit, eit = tee(it)
 
     def it_val() -> Iterator[V]:
@@ -72,7 +57,7 @@ def split_res(it: Iterable[Res[V]]) -> tuple[Iterator[V], Iterator[Exception]]:
 
 
 # TODO not sure if should keep it...
-def sorted_res(it: Iterable[Res[V]], key: Callable[[V], Any]) -> Iterator[Res[V]]:
+def sorted_res[V](it: Iterable[Res[V]], key: Callable[[V], Any]) -> Iterator[Res[V]]:
     vit, eit = split_res(it)
     yield from sorted(vit, key=key)
     yield from eit
