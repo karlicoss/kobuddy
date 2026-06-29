@@ -16,13 +16,12 @@ tox_cmd='run-parallel --parallel-live'
 if [ -n "${CI-}" ]; then
     # install OS specific stuff here
     case "$OSTYPE" in
-    darwin*) 
+    darwin*)
         # macos
         :
         ;;
     cygwin* | msys* | win*)
         # windows
-        :
         # ugh. parallel stuff seems super flaky under windows, some random failures, "file used by other process" and crap like that
         tox_cmd='run'
         ;;
@@ -35,3 +34,5 @@ fi
 
 # NOTE: expects uv installed
 uv tool run --with tox-uv tox $tox_cmd "$@"
+# NOTE: experimenting for now... might switch later for good
+# uv tool run nox "$@"

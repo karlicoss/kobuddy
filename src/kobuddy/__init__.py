@@ -94,7 +94,7 @@ class Book:
 class Event(Protocol):
     @property
     def dt(self) -> datetime:  # TODO deprecate?
-        return self._dt  # type: ignore[attr-defined]
+        return self._dt  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     @property
     def created(self) -> datetime:
@@ -103,11 +103,11 @@ class Event(Protocol):
     # books don't necessarily have title/author, so this is more generic..
     @property
     def book(self) -> Book:
-        return self._book  # type: ignore[attr-defined]
+        return self._book  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     @property
     def eid(self) -> str:
-        return self._eid  # type: ignore[attr-defined]
+        return self._eid  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         # TODO ugh. properties with fallback??
 
     @property
