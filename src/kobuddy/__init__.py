@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
-import struct
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
@@ -33,6 +32,7 @@ from .common import (
     unwrap,
 )
 from .kobo_device import get_kobo_mountpoint
+from .qdatastream import parse_qvariant_map
 from .sqlite import sqlite_connection
 
 # a bit nasty to have a global variable here... will rewrite later
@@ -550,13 +550,11 @@ def _iter_events_aux(limit: int | None = None, errors: str = 'throw') -> Iterato
                 yield FinishedEvent(dt=dt, book=b, time_spent_s=extra.time_spent, eid=f'{b.content_id}-{fname.name}')
 
         ET = EventTbl
-        for i, row in enumerate(
-            db.execute(
-                f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, hex({ET.ExtraData}) from Event'
-            )
+        for row in db.execute(
+            f'SELECT {ET.EventType}, {ET.EventCount}, {ET.LastOccurrence}, {ET.ContentID}, {ET.Checksum}, CAST({ET.ExtraData} AS BLOB) AS {ET.ExtraData} from Event'
         ):  # TODO order by?
             try:
-                yield from _iter_events_aux_Event(row=row, books=books, idx=i)
+                yield from _iter_events_aux_Event(row=row, books=books)
             except Exception as e:
                 if errors == 'throw':
                     raise e
@@ -582,8 +580,7 @@ def _iter_events_aux(limit: int | None = None, errors: str = 'throw') -> Iterato
                     raise AssertionError(f'errors={errors}') from e
 
 
-# TODO FIXME remove idx
-def _iter_events_aux_Event(*, row, books: Books, idx: int = 0) -> Iterator[Event]:
+def _iter_events_aux_Event(*, row, books: Books) -> Iterator[Event]:
     logger = get_logger()
     ET = EventTbl
     ETT = ET.Types
@@ -594,7 +591,7 @@ def _iter_events_aux_Event(*, row, books: Books, idx: int = 0) -> Iterator[Event
         row[ET.LastOccurrence],
         row[ET.ContentID],
         row[ET.Checksum],
-        row[f'hex({ET.ExtraData})'],
+        row[ET.ExtraData],
     )
     if tp in (
         ETT.T37,
@@ -631,157 +628,32 @@ def _iter_events_aux_Event(*, row, books: Books, idx: int = 0) -> Iterator[Event
         logger.error('unexpected event: %s %s', book, row)
         raise RuntimeError(str(row))
 
-    blob = bytearray.fromhex(extra_data)
-
-    pos = 0
-    parsed: dict[bytes, Any] = {}
-
-    def context() -> str:
-        return f'row: {row}\nblob: {blob}\n remaining: {blob[pos:]}\n parsed: {parsed}\n xxx {blob[pos : pos + 30]}\n idx: {idx}\n parts: {parts}\n pos: {pos}'
-
-    def consume(fmt: str) -> Sequence[Any]:
-        nonlocal pos
-        sz = struct.calcsize(fmt)
-        try:
-            res = struct.unpack_from(fmt, blob, offset=pos)
-        except Exception as e:
-            raise RuntimeError(context()) from e
-        pos += sz
-        return res
-
-    # fmt: off
-    lengths = {
-        b'ExtraDataSyncedCount'      : 9,
-        b'PagesTurnedThisSession'    : 9,
-        b'IsMarkAsFinished'          : 6,
-        b'ExtraDataReadingSessions'  : 9,
-        b'ExtraDataReadingSeconds'   : 9,
-        b'ContentType'               : None,
-
-        # TODO weird, these contain stringified dates
-        b'ExtraDataLastModified'     : 49,
-        b'ExtraDataDateCreated'      : 49,
-
-        b'ExtraDataSyncedTimeElapsed': None,
-
-        # TODO eh, wordsRead is pretty weird; not sure what's the meaning. some giant blob.
-        b'wordsRead'                 : 9,
-
-        b'Monetization'              : None,
-        b'ViewType'                  : None,
-        b'eventTimestamps'           : None,
-        b'wordCounts'                : None,
-
-        # TODO not so sure... these might be part of monetization
-        b'Sideloaded'                : 0,
-        b'Paid'                      : 0,
-        b'Preview'                   : 0,
-
-        b'Orientation'               : 5,
-        b'Portrait'                  : 0,
-        b'Landscape'                 : 0,
-        b'ButtonPressCount'          : 9,
-    }
-    # fmt: on
-
-    (parts,) = consume('>I')
-    # ugh. apparently can't trust parts?
-    # for _ in range(parts):
-    while pos < len(blob):
-        wtf = b'\x000'
-        if blob[pos:].startswith(wtf):
-            pos += len(wtf)
-            continue
-        part_name_len: int
-        (part_name_len,) = consume('>I')
-        if part_name_len == 0:
-            break
-        # sanity check...
-        assert part_name_len < 1000, context()
-        assert part_name_len % 2 == 0, context()
-        fmt = f'>{part_name_len}s'
-        prename: bytes
-        (prename,) = consume(fmt)
-        # looks like b'\x00P\x00a\x00g\x00e\x00s'
-        assert prename[::2].count(0) == part_name_len // 2, context()
-        name = prename[1::2]
-
-        if name not in lengths:
-            raise RuntimeError(f'Unexpected event kind: {name!r}\n' + context())
-        part_len = lengths[name]
-
-        if part_len is not None:
-            part_data = consume(f'>{part_len}s')
-        elif name == b'eventTimestamps':
-            cnt: int
-            (cnt,) = consume('>5xI')
-            dts = []
-            for _ in range(cnt):
-                ts: int
-                (ts,) = consume('>5xI')
-                dt = datetime.fromtimestamp(ts, tz=UTC)
-                dts.append(dt)
-            part_data = dts
-        elif name == b'ViewType':
-            vt_len: int
-            (vt_len,) = consume('>5xI')
-            vt_body: bytes
-            (vt_body,) = consume(f'>{vt_len}s')
-            part_data = vt_body
-        elif name == b'Monetization':
-            qqq: bytes
-            (qqq,) = consume('>5s')
-            if qqq != b'\x00\x00\x00\n\x00':
-                (_,) = consume('>4s')  # no idea what's that..
-            continue
-        elif name == b'ExtraDataSyncedTimeElapsed':
-            (qqq,) = consume('>5s4x')
-            # TODO wtf???
-            if qqq == b'\x00\x00\x00\n\x00':
-                consume('>2x')
-            continue
-        elif name == b'wordCounts':
-            vt_cnt: int
-            (vt_cnt,) = consume('>5xI')
-            vt_len = vt_cnt * 9
-            (vt_body,) = consume(f'>{vt_len}s')
-            part_data = vt_body
-        elif name == b'ContentType':
-            (qqq,) = consume('>4s')
-            if qqq == b'\x00\x00\x00\x00':
-                # wtf?
-                consume('>5x')
-                continue
-            (vt_len,) = consume('>xI')
-            (vt_body,) = consume(f'>{vt_len}s')
-            part_data = vt_body
-        else:
-            raise RuntimeError('Expected fixed length\n' + context())
-
-        parsed[name] = part_data
-
-    assert pos == len(blob), context()
+    assert isinstance(extra_data, bytes), extra_data
+    parsed = parse_qvariant_map(extra_data)
 
     # assert cnt == count # weird mismatches do happen. I guess better off trusting binary data
 
     # TODO FIXME handle remaining items
-    timestamps: list[datetime] = parsed.get(b'eventTimestamps', [])
+    timestamps = parsed.get('eventTimestamps', [])
+    assert isinstance(timestamps, list), timestamps
 
-    for i, x in enumerate(timestamps):
+    for i, timestamp in enumerate(timestamps):
+        assert isinstance(timestamp, int), timestamp
+        dt = datetime.fromtimestamp(timestamp, tz=UTC)
         eid = checksum + "_" + str(i)
 
         if tp == ETT.T3:
-            yield ProgressEvent(dt=x, book=book, eid=eid)
+            yield ProgressEvent(dt=dt, book=book, eid=eid)
         elif tp == ETT.BOOK_FINISHED:
-            yield FinishedEvent(dt=x, book=book, eid=eid)
+            yield FinishedEvent(dt=dt, book=book, eid=eid)
         elif tp == ETT.PROGRESS_25:
-            yield ProgressEvent(dt=x, book=book, prog=25, eid=eid)
+            yield ProgressEvent(dt=dt, book=book, prog=25, eid=eid)
         elif tp == ETT.PROGRESS_50:
-            yield ProgressEvent(dt=x, book=book, prog=50, eid=eid)
+            yield ProgressEvent(dt=dt, book=book, prog=50, eid=eid)
         elif tp == ETT.PROGRESS_75:
-            yield ProgressEvent(dt=x, book=book, prog=75, eid=eid)
+            yield ProgressEvent(dt=dt, book=book, prog=75, eid=eid)
         else:
-            yield MiscEvent(dt=x, book=book, payload='EVENT ' + str(tp), eid=eid)
+            yield MiscEvent(dt=dt, book=book, payload='EVENT ' + str(tp), eid=eid)
 
 
 def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
@@ -1072,7 +944,7 @@ def print_progress(*, full: bool = True, **kwargs) -> None:
     logger = get_logger()
     for bevents in get_books_with_events(**kwargs):
         if isinstance(bevents, Exception):
-            logger.exception(bevents)
+            logger.error(bevents, exc_info=bevents)
             continue
         print()
         sts = None if bevents.started is None else _fmt_dt(bevents.started)  # weird but sometimes it is None..

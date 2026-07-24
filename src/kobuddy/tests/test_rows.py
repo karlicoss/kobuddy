@@ -66,12 +66,9 @@ def test_iter_events_aux_Event(exp: int, extra: str) -> None:
             ('LastOccurrence', '2019-01-22T23:07:47.000'),
             ('ContentID', 'fwfwf'),
             ('Checksum', 'bd0fda782920dbaa57d593fa70bcf3de'),
-            ('hex(ExtraData)', extra),
+            ('ExtraData', bytes.fromhex(extra)),
         ]
     )
-    import codecs
-
-    print(codecs.decode(extra, 'hex'))
     res = list(_iter_events_aux_Event(row=row, books=books))
     assert len(res) == exp
     # if len(res) > 0:
