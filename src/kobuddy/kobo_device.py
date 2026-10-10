@@ -8,7 +8,7 @@ from pathlib import Path
 
 def get_kobo_mountpoint(label: str = 'KOBOeReader') -> Path | None:
     has_lsblk = shutil.which('lsblk')
-    if has_lsblk:  # on Linux
+    if has_lsblk is not None:  # on Linux
         xxx = subprocess.check_output(['lsblk', '-f', '--json']).decode('utf8')
         jj = json.loads(xxx)
         devices = [d for d in jj['blockdevices'] if d.get('label', None) == label]
