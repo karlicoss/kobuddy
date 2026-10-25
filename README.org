@@ -77,6 +77,11 @@ Finished: 05 Oct 2019 14:00
 -- 05 Oct 2019 14:00: finished, total time spent 200 mins
 #+end_example
 
+Logging and progress go through [[https://github.com/karlicoss/kloggy][kloggy]].
+If you pass a directory with many backups, you can get progress bars instead of a log line per database:
+~pip3 install --user 'kloggy[rich]'~, then run with =KLOGGY_PROGRESS=auto=.
+=KLOGGY_LEVEL=debug= shows debug logs.
+
 ** as a backup tool
 #+begin_src bash  :exports both :results scalar
 kobuddy backup --help

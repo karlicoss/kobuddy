@@ -1,9 +1,9 @@
 import argparse
-import logging
 from pathlib import Path
 
+import kloggy
+
 from kobuddy import (
-    get_logger,
     print_annotations,
     print_books,
     print_progress,
@@ -12,25 +12,9 @@ from kobuddy import (
 )
 
 
-def setup_logger(logger, level=None, format=None, datefmt=None) -> None:  # noqa: A002
-    import logging
-
-    old_root = logging.root
-    try:
-        logging.root = logger
-        logging.basicConfig(
-            level=level or logging.DEBUG,
-            format=format or '%(name)s %(asctime)s %(levelname)-8s %(filename)s:%(lineno)-4d %(message)s',
-            datefmt=datefmt or '%Y-%m-%d %H:%M:%S',
-        )
-    finally:
-        logging.root = old_root
-
-
 def main() -> None:
     # TODO FIXME need to use proper timezone..
-    logger = get_logger()
-    setup_logger(logger, level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    kloggy.setup()
 
     Fmt = lambda prog: argparse.RawTextHelpFormatter(prog, width=100)
     p = argparse.ArgumentParser(
