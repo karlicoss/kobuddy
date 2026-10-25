@@ -3,6 +3,7 @@
 dynamic = ["version"]  # version is managed by build backend
 name = "kobuddy"
 dependencies = [
+    "kloggy",  # logging and progress reporting
 ]
 requires-python = ">=3.12"
 

@@ -22,9 +22,11 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Protocol
 
+from kloggy import get_logger
+from kloggy.progress import progress
+
 from .common import (
     Res,
-    get_logger,
     group_by_key,
     sorted_res,
     split_res,
@@ -34,6 +36,8 @@ from .common import (
 from .kobo_device import get_kobo_mountpoint
 from .qdatastream import parse_qvariant_map
 from .sqlite import sqlite_connection
+
+logger = get_logger(__name__)
 
 # a bit nasty to have a global variable here... will rewrite later
 DATABASES: list[Path] = []
@@ -524,7 +528,6 @@ class EventTbl:
 # TODO use literal mypy types?
 def _iter_events_aux(limit: int | None = None, errors: str = 'throw') -> Iterator[Res[Event]]:
     # TODO handle all_ here?
-    logger = get_logger()
     dbs = DATABASES
     if limit is not None:
         # pylint: disable=invalid-unary-operand-type
@@ -534,8 +537,7 @@ def _iter_events_aux(limit: int | None = None, errors: str = 'throw') -> Iterato
     books = Books(create_if_missing=True)
 
     def connections():
-        for fname in dbs:
-            logger.info(f'processing {fname}')
+        for fname in progress(dbs, logger=logger, desc='events', unit='dbs'):
             with sqlite_connection(fname, immutable=True, row_factory='row') as db:
                 yield fname, db
 
@@ -581,7 +583,6 @@ def _iter_events_aux(limit: int | None = None, errors: str = 'throw') -> Iterato
 
 
 def _iter_events_aux_Event(*, row, books: Books) -> Iterator[Event]:
-    logger = get_logger()
     ET = EventTbl
     ETT = ET.Types
     checksum: str
@@ -657,7 +658,6 @@ def _iter_events_aux_Event(*, row, books: Books) -> Iterator[Event]:
 
 
 def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
-    logger = get_logger()
     AE = AnalyticsEvents
     eid, ts, tp, att, met = row[AE.Id], row[AE.Timestamp], row[AE.Type], row[AE.Attributes], row[AE.Metrics]
     ts = _parse_utcdt(ts)  # TODO make dynamic?
@@ -759,7 +759,7 @@ def _iter_events_aux_AnalyticsEvents(*, row, books: Books) -> Iterator[Event]:
 
 def _get_books() -> Books:
     books = Books()
-    for bfile in DATABASES:
+    for bfile in progress(DATABASES, logger=logger, desc='books', unit='dbs'):
         with sqlite_connection(bfile, immutable=True, row_factory='row') as db:
             for b, _ in _load_books(db):
                 books.add(b)
@@ -775,7 +775,7 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:  # noqa: ARG001
 
     # todo more_itertools?
     yielded: set[Highlight] = set()
-    for bfile in DATABASES:
+    for bfile in progress(DATABASES, logger=logger, desc='highlights', unit='dbs'):
         for h in _load_highlights(bfile, books=books):
             if h not in yielded:
                 yield h
@@ -783,8 +783,6 @@ def _iter_highlights(**kwargs) -> Iterator[Highlight]:  # noqa: ARG001
 
 
 def _load_highlights(bfile: Path, books: Books) -> Iterator[Highlight]:
-    logger = get_logger()
-    logger.info(f"Using {bfile} for highlights")
     with sqlite_connection(bfile, immutable=True, row_factory='row') as db:
         for bm in db.execute('SELECT * FROM Bookmark'):
             volumeid = bm['VolumeID']
@@ -802,8 +800,6 @@ def _load_highlights(bfile: Path, books: Books) -> Iterator[Highlight]:
 
 
 def _load_wordlist(bfile: Path):
-    logger = get_logger()
-    logger.info(f"Using {bfile} for wordlist")
     with sqlite_connection(bfile, immutable=True, row_factory='row') as db:
         for bm in db.execute('SELECT * FROM WordList'):
             yield bm['Text']
@@ -816,7 +812,7 @@ def get_highlights(**kwargs) -> list[Highlight]:
 def get_wordlist() -> Iterator[str]:
     yielded: set[str] = set()
 
-    for bfile in DATABASES:
+    for bfile in progress(DATABASES, logger=logger, desc='wordlist', unit='dbs'):
         for h in _load_wordlist(bfile):
             if h not in yielded:
                 yield h
@@ -941,7 +937,6 @@ def _fmt_dt(dt: datetime) -> str:
 
 
 def print_progress(*, full: bool = True, **kwargs) -> None:
-    logger = get_logger()
     for bevents in get_books_with_events(**kwargs):
         if isinstance(bevents, Exception):
             logger.error(bevents, exc_info=bevents)

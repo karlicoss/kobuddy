@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Iterable, Iterator
 from itertools import tee
 from typing import Any
-
-
-def get_logger() -> logging.Logger:
-    return logging.getLogger('kobuddy')
 
 
 def unwrap[T](x: T | None) -> T:
